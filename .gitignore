@@ -1,0 +1,15 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+
+# folders
+.vscode/
+.Python
+catboost_info/
+input/
+trained_models/
+archiwum/
+
+#notebboks
+*.ipynb

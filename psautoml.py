@@ -1,0 +1,253 @@
+import seaborn as sns
+palette = ["#7FC7D9", "#7A316F", "#365486" , "#0F1035", "#7A316F"]
+sns.set_palette(palette=palette)
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import warnings
+import psai.psviz as psviz
+import psai.psxgb as psxgb
+import psai.pscat as pscat
+import psai.pstf as pstf
+import psai.psout as psout
+import math as math
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
+from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
+
+from xgboost import XGBClassifier, XGBRegressor
+from catboost import CatBoostClassifier, CatBoostRegressor
+import tensorflow as tf
+from tensorflow import keras
+
+
+class psAUTOML:
+    #zmienne dla treningu z cv
+    xgbcv = None
+    catcv = None
+    tfcv = None
+    
+    #zmienne dla modelu koncowego
+    xgb = None
+    cat = None
+    tf= None
+    
+    estimators = None
+    
+    xgbparams = None
+    catparams = None
+    tfparams = None
+    
+    
+    def __init__(self, task = None, estimators = ['xgb','cat','tf'], xgbparams = None, catparams = None, tfparams = None):
+        
+        self.task = task
+        self.estimators = estimators
+        self.xgbparams = xgbparams
+        self.catparams = catparams
+        self.tfparams = tfparams
+        
+        
+    def fit(self, X, y):
+        
+        if self.task == 'classification':
+
+            for e in self.estimators:
+                if e == 'xgb':
+                    self.xgbcv = psxgb.psXGB(all_params=self.xgbparams)
+                    self.xgbcv.buildClassifier(X,y)
+                elif e == 'cat':
+                    self.catcv = pscat.psCAT(all_params=self.catparams)
+                    self.catcv.buildClassifier(X,y)
+                elif e == 'tf':
+                    self.tfcv = pstf.psTF(all_params=self.tfparams)
+                    #yo = psout.oneHot(y)
+                    self.tfcv.buildClassifier(X,y)
+                else:
+                    print('Estimator not recognized')
+        
+        if self.task == 'regression':
+
+            for e in self.estimators:
+                if e == 'xgb':
+                    self.xgbcv = psxgb.psXGB(all_params=self.xgbparams)
+                    self.xgbcv.buildRegressor(X,y)
+                elif e == 'cat':
+                    self.catcv = pscat.psCAT(all_params=self.catparams)
+                    self.catcv.buildRegressor(X,y)
+                elif e == 'tf':
+                    self.tfcv = pstf.psTF(all_params=self.tfparams)
+                    self.tfcv.buildRegressor(X,y)
+                else:
+                    print('Estimator not recognized')
+    
+
+                    
+    def build(self, X, y):
+        
+        if self.task == 'classification':
+
+            for e in self.estimators:
+                if e == 'xgb':
+                    self.xgbparams['cv'] = 1
+                    self.xgb = psxgb.psXGB(all_params=self.xgbparams)
+                    self.xgb.buildClassifier(X,y)
+                elif e == 'cat':
+                    self.catparams['cv'] = 1
+                    self.cat = pscat.psCAT(all_params=self.catparams)
+                    self.cat.buildClassifier(X,y)
+                elif e == 'tf':
+                    self.tfparams['cv'] = 1
+                    self.tf = pstf.psTF(all_params=self.tfparams)
+                    #yo = psout.oneHot(y)
+                    self.tf.buildClassifier(X,y)
+                else:
+                    print('Estimator not recognized')
+        
+        if self.task == 'regression':
+
+            for e in self.estimators:
+                if e == 'xgb':
+                    self.xgb = psxgb.psXGB(all_params=self.xgbparams)
+                    self.xgb.buildRegressor(X,y)
+                elif e == 'cat':
+                    self.cat = pscat.psCAT(all_params=self.catparams)
+                    self.cat.buildRegressor(X,y)
+                elif e == 'tf':
+                    self.tf = pstf.psTF(all_params=self.tfparams)
+                    self.tf.buildRegressor(X,y)
+                else:
+                    print('Estimator not recognized')
+                    
+    def evaluate(self, X, y):
+        
+        if self.task == 'classification':
+
+            #preds_xgb = self.xgb.predict(X)
+            
+            #if self.xgbparams['num_class'] == 2:
+            #    preds_xgb = preds_xgb.argmax(axis=1)
+            
+            #preds_cat = self.cat.predict(X)
+            #preds_tf = self.tf.predict(X)
+            
+            preds_xgb = self.xgb.predict_proba(X).argmax(axis=1)
+            preds_cat = self.cat.predict_proba(X).argmax(axis=1)
+            preds_tf = self.tf.predict_proba(X).argmax(axis=1)
+            
+            acc_xgb = accuracy_score(preds_xgb, y)
+            acc_cat = accuracy_score(preds_cat, y)
+            acc_tf = accuracy_score(preds_tf, y)
+            
+            preds_xgba = self.xgb.predict_proba(X)
+            preds_cata = self.cat.predict_proba(X)
+            preds_tfa = self.tf.predict_proba(X)
+
+            predsa = (preds_xgba + preds_cata + preds_tfa)/3
+            predsa_a=np.argmax(predsa, axis=1)
+            acc = accuracy_score(y, predsa_a)
+
+
+            print('acc_xgb : ', acc_xgb)
+            print('acc_cat : ', acc_cat)
+            print('acc_tf  : ', acc_tf)
+            print('acc/3   : ', acc)    
+        
+        if self.task == 'regression':
+            
+            preds_tf = pd.DataFrame(self.tf.predict(X), columns=['preds'])
+            preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['preds'])
+            preds_cat = pd.DataFrame(self.cat.predict(X), columns=['preds'])
+           
+            r2_xgb = r2_score(preds_xgb, y)
+            r2_cat = r2_score(preds_cat, y)
+            r2_tf = r2_score(preds_tf, y)
+
+            predsa = (preds_xgb + preds_cat + preds_tf)/3
+            r2 = r2_score(predsa, y)
+
+            print('r2_xgb : ', r2_xgb)
+            print('r2_cat : ', r2_cat)
+            print('r2_tf  : ', r2_tf)
+            print('r2/3   : ', r2)                
+    
+    def predict(self, X):
+        
+        if self.task == 'classification':
+            
+            preds_xgba = self.xgb.predict_proba(X)
+            preds_cata = self.cat.predict_proba(X)
+            preds_tfa = self.tf.predict_proba(X)
+
+            predsa = (preds_xgba + preds_cata + preds_tfa)/3
+            predsa_a=np.argmax(predsa, axis=1)
+            
+            return predsa_a
+        
+        if self.task == 'regression':
+            
+            preds_tf = pd.DataFrame(self.tf.predict(X), columns=['preds'])
+            preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['preds'])
+            preds_cat = pd.DataFrame(self.cat.predict(X), columns=['preds'])
+           
+            #r2_xgb = r2_score(preds_xgb, y)
+            #r2_cat = r2_score(preds_cat, y)
+            #r2_tf = r2_score(preds_tf, y)
+
+            predsa = (preds_xgb + preds_cat + preds_tf)/3
+            
+            return predsa           
+        
+    def saveModel(self, name):
+        import os
+        folder = "trained_models"
+        folder_modelu = folder + "\/" + name
+        
+        if not os.path.exists(folder):
+            os.mkdir(folder)
+        
+        if not os.path.exists(folder_modelu):
+            os.mkdir(folder + "\/" + name)
+        
+        
+        self.xgb.model.save_model(folder_modelu + "/xgb.json")
+        self.cat.model.save_model(folder_modelu + "/cat.json",format="json",export_parameters=None,pool=None)
+        self.tf.model.save(folder_modelu + '/tf.h5')
+        
+    
+    def loadModel(self, type, name, num_class=None):
+        if type == 'classification':
+            
+            if num_class != None:
+                self.xgbparams = {}
+                self.xgbparams['num_class'] = num_class
+            
+            self.xgb = psxgb.psXGB()
+            self.xgb.model = XGBClassifier()
+            self.xgb.model.load_model(name + "/xgb.json")
+            
+            self.cat = pscat.psCAT()
+            self.cat.model = CatBoostClassifier()
+            self.cat.model.load_model(name + "/cat.json", format="json")
+            
+        if type == 'regression':
+            self.xgb.model = XGBRegressor()
+            self.xgb.model.load_model(name + "/xgb.json")
+            
+            self.cat.model = CatBoostRegressor()
+            self.cat.model.load_model(name + "/cat.json", format="json")
+        
+        self.tf = pstf.psTF()
+        self.tf.model = keras.models.load_model(name + '/tf.h5')
+        
+        
+    def getBestParamsForFit(self, estimator):
+        if(estimator == 'xgb'):
+            return pd.DataFrame(self.xgbcv.params)
+        elif(estimator == 'cat'):
+            return pd.DataFrame(self.catcv.params)
+        elif(estimator == 'tf'):
+            return pd.DataFrame(self.tfcv.params)
+        else:
+            print('Estimator not recognized')
