@@ -5,6 +5,7 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, m
 from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
 from sklearn.model_selection import train_test_split, KFold
 import xgboost as xgb
+#from xgboost import EarlyStopping
 
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -240,9 +241,16 @@ class psXGB:
                                                                         
                                                                         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
                                                                         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                                                                        
+                                                                        early_stopping = xgb.callback.EarlyStopping(
+                                                                            rounds=early_stopping_rounds,  # The equivalent of early_stopping_rounds
+                                                                            save_best=True,  # Save the model with the best score
+                                                                            metric_name=eval_metric,  # Specify the metric to monitor
+                                                                            #data_name="validation",  # Name of the validation dataset
+                                                                        )
                                                                                                                                 
-                                                                        model1 = xgb.XGBClassifier(tree_method=tree_method,objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight, num_class=self.num_class)
-                                                                        model1.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False, early_stopping_rounds=early_stopping_rounds)
+                                                                        model1 = xgb.XGBClassifier(callbacks=[early_stopping],tree_method=tree_method,objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight, num_class=self.num_class)
+                                                                        model1.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
                                                                     
                                                                         preds = model1.predict(X_test)
                                                                         
