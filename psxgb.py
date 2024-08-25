@@ -84,10 +84,16 @@ class psXGB:
                                                                     i = 1
                                                                     for train_index, test_index in kf.split(X):
                                                                         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-                                                                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]                                                               
+                                                                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]        
                                                                         
-                                                                        model1 = xgb.XGBRegressor(objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight)
-                                                                        model1.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False, early_stopping_rounds=early_stopping_rounds)
+                                                                        early_stopping = xgb.callback.EarlyStopping(
+                                                                            rounds=early_stopping_rounds,
+                                                                            save_best=True,
+                                                                            metric_name=eval_metric,
+                                                                        )                                                       
+                                                                        
+                                                                        model1 = xgb.XGBRegressor(callbacks=[early_stopping],objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight)
+                                                                        model1.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
                                                                         
                                                                         preds = model1.predict(X_test)
                                                                         rmse = mean_squared_error(y_test, preds, squared=False)
@@ -243,10 +249,9 @@ class psXGB:
                                                                         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
                                                                         
                                                                         early_stopping = xgb.callback.EarlyStopping(
-                                                                            rounds=early_stopping_rounds,  # The equivalent of early_stopping_rounds
-                                                                            save_best=True,  # Save the model with the best score
-                                                                            metric_name=eval_metric,  # Specify the metric to monitor
-                                                                            #data_name="validation",  # Name of the validation dataset
+                                                                            rounds=early_stopping_rounds,
+                                                                            save_best=True,
+                                                                            metric_name=eval_metric,
                                                                         )
                                                                                                                                 
                                                                         model1 = xgb.XGBClassifier(callbacks=[early_stopping],tree_method=tree_method,objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight, num_class=self.num_class)
