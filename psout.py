@@ -24,16 +24,22 @@ def isoForest(df, col, contamination=0.1):
     
     return dfC, anomally
 
-def scalerStd(df, col):
+def scalerStd(df, col = None):
     sc = StandardScaler()
 
-    X1 = sc.fit_transform(df[col])
-    X1df = pd.DataFrame(X1, columns=df[col].columns, index=df.index)
+    if col is None:
+        X1 = sc.fit_transform(df)
+        X1df = pd.DataFrame(X1, index=df.index)
+        
+        return X1df, sc
+    else:
+        X1 = sc.fit_transform(df[col])
+        X1df = pd.DataFrame(X1, columns=df[col].columns, index=df.index)
 
-    dfC = df.copy()
-    dfC[col] = X1df[col]
-    
-    return dfC, sc
+        dfC = df.copy()
+        dfC[col] = X1df[col]
+        
+        return dfC, sc
 
 def scalerNorm(df, col):
     sc = MinMaxScaler(feature_range=(0, 1))

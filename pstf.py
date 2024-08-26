@@ -80,21 +80,69 @@ class psTF:
                                 # Train model
                                 ts = time.time()
                                 
-                                es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=early_stopping_rounds)
-                                lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',factor=0.1,patience=5,min_lr=self.min_lr)
+                                
         
                                 cv_models = {}
-                                kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.randSeed)
                                 
-                                i = 1
-                                for train_index, test_index in kf.split(X):
-                                    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-                                    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-            
-                                    XT_train = np.asarray(X_train).astype(np.float32)
-                                    yT_train = np.asarray(y_train).astype(np.float32)
-                                    XT_test = np.asarray(X_test).astype(np.float32)
-                                    yT_test = np.asarray(y_test).astype(np.float32)
+                                if(self.cv > 1): 
+                                
+                                    es = EarlyStopping(monitor='val_loss', mode='min', verbose=1, patience=early_stopping_rounds)
+                                    lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',factor=0.1,patience=5,min_lr=self.min_lr)
+                                
+                                    kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.randSeed)
+                                    
+                                    i = 1
+                                    for train_index, test_index in kf.split(X):
+                                        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+                                        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                
+                                        XT_train = np.asarray(X_train).astype(np.float32)
+                                        yT_train = np.asarray(y_train).astype(np.float32)
+                                        XT_test = np.asarray(X_test).astype(np.float32)
+                                        yT_test = np.asarray(y_test).astype(np.float32)
+
+                                        model1 = Sequential()
+                                        
+                                        for l in self.layers_param[layers]:
+                                            if self.layers_param[layers][l]["type"] == "Dense":
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
+                                            elif self.layers_param[layers][l]["type"] == "Conv1D":
+                                                model1.add(Conv1D(self.layers_param[layers][l]["nf"], self.layers_param[layers][l]["k"], activation=self.layers_param[layers][l]["activation"]))
+                                            elif self.layers_param[layers][l]["type"] == "MaxPooling1D":
+                                                model1.add(MaxPooling1D(self.layers_param[layers][l]["size"]))
+                                            elif self.layers_param[layers][l]["type"] == "Drop":
+                                                model1.add(Dropout(self.layers_param[layers][l]["rate"]))
+                                            elif self.layers_param[layers][l]["type"] == "Flatten":
+                                                model1.add(Flatten())
+                                        
+                                        model1.compile(optimizer=optimizer, loss=loss)
+
+                                        # fit the model
+                                        history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
+                                        
+                                        tt = time.time() - ts
+
+                                        preds = model1.predict(XT_test)
+                                        y_pred_a=np.argmax(preds, axis=1)
+                                        
+                                        rmse = mean_squared_error(yT_test, y_pred_a, squared=False)
+                                        mae = mean_absolute_error(yT_test, y_pred_a)
+                                        r2 = r2_score(yT_test, y_pred_a)
+                                        mape = mean_absolute_percentage_error(yT_test, y_pred_a)
+                                        medae = median_absolute_error(yT_test, y_pred_a)
+                                        
+                                        cv_models[i] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
+                                        i += 1
+                                        
+                                elif(self.cv == 1):
+                                
+                                    es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=early_stopping_rounds)
+                                    lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',factor=0.1,patience=5,min_lr=self.min_lr)
+                                    
+                                    XT = np.asarray(X).astype(np.float32)
+                                    yT = np.asarray(y).astype(np.float32)
+                                    
+                                    yT_a=np.argmax(y, axis=1)
 
                                     model1 = Sequential()
                                     
@@ -117,15 +165,16 @@ class psTF:
                                     
                                     tt = time.time() - ts
 
-                                    preds = model1.predict(XT_test)
-                                    rmse = mean_squared_error(yT_test, preds, squared=False)
-                                    mae = mean_absolute_error(yT_test, preds)
-                                    r2 = r2_score(yT_test, preds)
-                                    mape = mean_absolute_percentage_error(yT_test, preds)
-                                    medae = median_absolute_error(y_test, preds)
+                                    preds = model1.predict(XT)
+                                    y_pred_a=np.argmax(preds, axis=1)
+                                        
+                                    rmse = mean_squared_error(yT, y_pred_a, squared=False)
+                                    mae = mean_absolute_error(yT, y_pred_a)
+                                    r2 = r2_score(yT, y_pred_a)
+                                    mape = mean_absolute_percentage_error(yT, y_pred_a)
+                                    medae = median_absolute_error(yT, y_pred_a)
                                     
-                                    cv_models[i] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
-                                    i += 1
+                                    cv_models[1] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                 
                                 dfcv = pd.DataFrame(cv_models).T
                                                                 
@@ -180,11 +229,13 @@ class psTF:
         print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])
         
         preds = best_model['model'].values[0].predict(X)
-        rmse = mean_squared_error(y, preds, squared=False)
-        mae = mean_absolute_error(y, preds)
-        r2 = r2_score(y, preds)
-        mape = mean_absolute_percentage_error(y, preds)
-        medae = median_absolute_error(y, preds)
+        y_pred_a=np.argmax(preds, axis=1)
+        
+        rmse = mean_squared_error(y, y_pred_a, squared=False)
+        mae = mean_absolute_error(y, y_pred_a)
+        r2 = r2_score(y, y_pred_a)
+        mape = mean_absolute_percentage_error(y, y_pred_a)
+        medae = median_absolute_error(y,y_pred_a)
         
         print("============= Best model ================")
         print("RMSE: ", rmse, "MAE: ", mae, "MAPE: ", mape, "MedAE: ", medae, "R2: ", r2)
@@ -192,7 +243,7 @@ class psTF:
         dfA = y.copy()
         varName = dfA.columns[0]
         dfA.rename(columns = {varName:'Actual'}, inplace = True) 
-        dfA['Predicted'] = preds
+        dfA['Predicted'] = y_pred_a
         
         plt.figure(figsize=(8, 5))
         sns.regplot(data=dfA, x="Actual", y="Predicted")
