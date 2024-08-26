@@ -228,14 +228,17 @@ class psTF:
         print("============= Best avg metrics ================")
         print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])
         
-        preds = best_model['model'].values[0].predict(X)
+        XT = np.asarray(X).astype(np.float32)
+        yT = np.asarray(y).astype(np.float32)
+        
+        preds = best_model['model'].values[0].predict(XT)
         y_pred_a=np.argmax(preds, axis=1)
         
-        rmse = mean_squared_error(y, y_pred_a, squared=False)
-        mae = mean_absolute_error(y, y_pred_a)
-        r2 = r2_score(y, y_pred_a)
-        mape = mean_absolute_percentage_error(y, y_pred_a)
-        medae = median_absolute_error(y,y_pred_a)
+        rmse = mean_squared_error(yT, y_pred_a, squared=False)
+        mae = mean_absolute_error(yT, y_pred_a)
+        r2 = r2_score(yT, y_pred_a)
+        mape = mean_absolute_percentage_error(yT, y_pred_a)
+        medae = median_absolute_error(yT, y_pred_a)
         
         print("============= Best model ================")
         print("RMSE: ", rmse, "MAE: ", mae, "MAPE: ", mape, "MedAE: ", medae, "R2: ", r2)
