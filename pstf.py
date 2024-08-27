@@ -29,7 +29,7 @@ class psTF:
     randSeed = 123
     eval_metric = "rmse"
     epochs_param = [10000]
-    optimizer_param = ["adam"]
+    optimizer_param = ["adam"] 
     loss_param = ["mae"]
     batch_size_param = [100]
     early_stopping_rounds_param = [10, 20, 50, 100]
@@ -103,9 +103,13 @@ class psTF:
 
                                         model1 = Sequential()
                                         
+                                        li = 1
                                         for l in self.layers_param[layers]:
                                             if self.layers_param[layers][l]["type"] == "Dense":
-                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
+                                                if li == 1:
+                                                    model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                                else:
+                                                    model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                             elif self.layers_param[layers][l]["type"] == "Conv1D":
                                                 model1.add(Conv1D(self.layers_param[layers][l]["nf"], self.layers_param[layers][l]["k"], activation=self.layers_param[layers][l]["activation"]))
                                             elif self.layers_param[layers][l]["type"] == "MaxPooling1D":
@@ -114,6 +118,8 @@ class psTF:
                                                 model1.add(Dropout(self.layers_param[layers][l]["rate"]))
                                             elif self.layers_param[layers][l]["type"] == "Flatten":
                                                 model1.add(Flatten())
+                                                
+                                            li += 1
                                         
                                         model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
 
@@ -145,9 +151,13 @@ class psTF:
 
                                     model1 = Sequential()
                                     
+                                    li = 1
                                     for l in self.layers_param[layers]:
                                         if self.layers_param[layers][l]["type"] == "Dense":
-                                            model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
+                                            if li == 1:
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                            else:
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "Conv1D":
                                             model1.add(Conv1D(self.layers_param[layers][l]["nf"], self.layers_param[layers][l]["k"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "MaxPooling1D":
@@ -156,6 +166,8 @@ class psTF:
                                             model1.add(Dropout(self.layers_param[layers][l]["rate"]))
                                         elif self.layers_param[layers][l]["type"] == "Flatten":
                                             model1.add(Flatten())
+                                            
+                                        li += 1
                                     
                                     model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
 
@@ -302,9 +314,13 @@ class psTF:
 
                                         model1 = Sequential()
                                         
+                                        li = 1
                                         for l in self.layers_param[layers]:
                                             if self.layers_param[layers][l]["type"] == "Dense":
-                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
+                                                if li == 1:
+                                                    model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                                else:
+                                                    model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                             elif self.layers_param[layers][l]["type"] == "Conv1D":
                                                 model1.add(Conv1D(self.layers_param[layers][l]["nf"], self.layers_param[layers][l]["k"], activation=self.layers_param[layers][l]["activation"]))
                                             elif self.layers_param[layers][l]["type"] == "MaxPooling1D":
@@ -313,6 +329,8 @@ class psTF:
                                                 model1.add(Dropout(self.layers_param[layers][l]["rate"]))
                                             elif self.layers_param[layers][l]["type"] == "Flatten":
                                                 model1.add(Flatten())
+                                            
+                                            li += 1
                                         
                                         model1.compile(optimizer=optimizer, loss=loss, metrics=['accuracy']) #, 'Precision', 'Recall'
                                         history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test),callbacks=[es,lr])#callbacks=[es,lr]
@@ -339,9 +357,13 @@ class psTF:
 
                                     model1 = Sequential()
                                     
+                                    li = 1
                                     for l in self.layers_param[layers]:
                                         if self.layers_param[layers][l]["type"] == "Dense":
-                                            model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
+                                            if li == 1:
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                            else:
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "Conv1D":
                                             model1.add(Conv1D(self.layers_param[layers][l]["nf"], self.layers_param[layers][l]["k"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "MaxPooling1D":
@@ -350,6 +372,8 @@ class psTF:
                                             model1.add(Dropout(self.layers_param[layers][l]["rate"]))
                                         elif self.layers_param[layers][l]["type"] == "Flatten":
                                             model1.add(Flatten())
+                                        
+                                        li += 1
                                     
                                     model1.compile(optimizer=optimizer, loss=loss, metrics=['accuracy']) #, 'Precision', 'Recall'
                                     history = model1.fit(XT, yT, epochs=epochs, batch_size=batch_size, verbose=self.verbose, callbacks=[es,lr])#callbacks=[es,lr]
