@@ -31,13 +31,14 @@ class psTF:
     epochs_param = [10000]
     optimizer_param = ["adam"] 
     loss_param = ["mae"]
-    batch_size_param = [100]
+    batch_size_param = [32]
     early_stopping_rounds_param = [10, 20, 50, 100]
     metric_out = "rmse"
     min_lr = 0.001
     verbose=0
-    cv = 1
+    cv = 5
     task = None
+    build_test_size = 0.2
     layers_param = {
         "nn1":{
         1:{"type":"Dense","n":100,"activation":"relu"},
@@ -144,18 +145,15 @@ class psTF:
                                     es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=early_stopping_rounds)
                                     lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',factor=0.1,patience=5,min_lr=self.min_lr)
                                     
-                                    XT = np.asarray(X).astype(np.float32)
-                                    yT = np.asarray(y).astype(np.float32)
+                                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
                                     
-                                    yT_a=np.argmax(yT, axis=1)
-
                                     model1 = Sequential()
                                     
                                     li = 1
                                     for l in self.layers_param[layers]:
                                         if self.layers_param[layers][l]["type"] == "Dense":
                                             if li == 1:
-                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(X_train.shape[1],)))
                                             else:
                                                 model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "Conv1D":
@@ -172,16 +170,16 @@ class psTF:
                                     model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
 
                                     # fit the model
-                                    history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
+                                    history = model1.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(X_test, y_test), callbacks=[es,lr])
                                     
                                     tt = time.time() - ts
 
-                                    preds = model1.predict(XT)
-                                    rmse = mean_squared_error(yT, preds, squared=False)
-                                    mae = mean_absolute_error(yT, preds)
-                                    r2 = r2_score(yT, preds)
-                                    mape = mean_absolute_percentage_error(yT, preds)
-                                    medae = median_absolute_error(yT, preds)
+                                    preds = model1.predict(X)
+                                    rmse = mean_squared_error(y, preds, squared=False)
+                                    mae = mean_absolute_error(y, preds)
+                                    r2 = r2_score(y, preds)
+                                    mape = mean_absolute_percentage_error(y, preds)
+                                    medae = median_absolute_error(y, preds)
                                     
                                     cv_models[1] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                 
@@ -237,11 +235,7 @@ class psTF:
         print("============= Best avg metrics ================")
         print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])
         
-        #XT = np.asarray(X).astype(np.float32)
-        #yT = np.asarray(y).astype(np.float32)
-        
         preds = best_model['model'].values[0].predict(X)
-        #y_pred_a=np.argmax(preds, axis=1)
         
         rmse = mean_squared_error(y, preds, squared=False)
         mae = mean_absolute_error(y, preds)

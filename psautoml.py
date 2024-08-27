@@ -73,7 +73,6 @@ class psAUTOML:
                     self.catcv.buildClassifier(X,y)
                 elif e == 'tf':
                     self.tfcv = pstf.psTF(all_params=self.tfparams)
-                    #yo = psout.oneHot(y)
                     self.tfcv.buildClassifier(X,y)
                 else:
                     print('Estimator not recognized')
@@ -114,6 +113,15 @@ class psAUTOML:
                     
     def build(self, X, y):
         
+        print("============== Training started for PSAUTOML ===============")
+        print("Estimators: ", self.estimators, " Task: ", self.task)
+        
+        ns = datetime.now()
+        ts = time.time()
+        
+        print("============================================================")
+        print("Time: ", ns.strftime("%d/%m/%Y %H:%M:%S"), "")
+        
         if self.task == 'classification':
 
             for e in self.estimators:
@@ -128,7 +136,6 @@ class psAUTOML:
                 elif e == 'tf':
                     self.tfparams['cv'] = 1
                     self.tf = pstf.psTF(all_params=self.tfparams)
-                    #yo = psout.oneHot(y)
                     self.tf.buildClassifier(X,y)
                 else:
                     print('Estimator not recognized')
@@ -137,28 +144,40 @@ class psAUTOML:
 
             for e in self.estimators:
                 if e == 'xgb':
+                    self.xgbparams['cv'] = 1
                     self.xgb = psxgb.psXGB(all_params=self.xgbparams)
                     self.xgb.buildRegressor(X,y)
                 elif e == 'cat':
+                    self.catparams['cv'] = 1
                     self.cat = pscat.psCAT(all_params=self.catparams)
                     self.cat.buildRegressor(X,y)
                 elif e == 'tf':
+                    self.tfparams['cv'] = 1
                     self.tf = pstf.psTF(all_params=self.tfparams)
                     self.tf.buildRegressor(X,y)
                 else:
                     print('Estimator not recognized')
                     
+        nt = datetime.now()
+        tt = time.time()
+        
+        atir = "s"
+        atime = tt - ts
+        if(atime > 3600):
+            atime = atime / 3600
+            atir = "h"
+        elif(atime > 60):
+            atime = atime / 60
+            atir = "m"
+        
+        print("============== Training complete============================")
+        print("Estimators: ", self.estimators, " Task: ", self.task)
+        print("============================================================")
+        print("Time: ", nt.strftime("%d/%m/%Y %H:%M:%S"), ", it takes: ", atime, atir )
+                    
     def evaluate(self, X, y):
         
         if self.task == 'classification':
-
-            #preds_xgb = self.xgb.predict(X)
-            
-            #if self.xgbparams['num_class'] == 2:
-            #    preds_xgb = preds_xgb.argmax(axis=1)
-            
-            #preds_cat = self.cat.predict(X)
-            #preds_tf = self.tf.predict(X)
             
             preds_xgb = self.xgb.predict_proba(X).argmax(axis=1)
             preds_cat = self.cat.predict_proba(X).argmax(axis=1)
@@ -175,7 +194,6 @@ class psAUTOML:
             predsa = (preds_xgba + preds_cata + preds_tfa)/3
             predsa_a=np.argmax(predsa, axis=1)
             acc = accuracy_score(y, predsa_a)
-
 
             print('acc_xgb : ', acc_xgb)
             print('acc_cat : ', acc_cat)
@@ -219,10 +237,6 @@ class psAUTOML:
             preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['preds'])
             preds_cat = pd.DataFrame(self.cat.predict(X), columns=['preds'])
            
-            #r2_xgb = r2_score(preds_xgb, y)
-            #r2_cat = r2_score(preds_cat, y)
-            #r2_tf = r2_score(preds_tf, y)
-
             predsa = (preds_xgb + preds_cat + preds_tf)/3
             
             return predsa           

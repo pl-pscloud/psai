@@ -31,6 +31,7 @@ class psCAT:
     cat_features = []
     metric_out = "rmse" # ['rmse', 'mae', 'mape', 'r2', 'accuracy', 'precision', 'recall', 'f1']
     cv = 5
+    build_test_size = 0.2
     
     def __init__(self, all_params=None):
         if all_params is not None:
@@ -66,29 +67,31 @@ class psCAT:
                                             ts = time.time()
                                             
                                             cv_models = {}
-                                                                
-                                            kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.randSeed)
-                                                                
-                                            i = 1
-                                            for train_index, test_index in kf.split(X):
-                                                X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-                                                y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                                                              
+                                            if(self.cv > 1):
+                                                  
+                                                kf = KFold(n_splits=self.cv, shuffle=True, random_state=self.randSeed)
                                                                     
-                                                model1 = cat.CatBoostRegressor(random_state = self.randSeed,
-                                                                            task_type = self.task_type,
-                                                                            num_boost_round=num_boost_round,
-                                                                            eta=eta,
-                                                                            max_depth=max_depth,
-                                                                            l2_leaf_reg=lambdap,
-                                                                            objective=objective,
-                                                                            subsample=subsample,
-                                                                            early_stopping_rounds=early_stopping_rounds,         
-                                                                            grow_policy=grow_policy,
-                                                                            eval_metric=eval_metric,
-                                                                            bootstrap_type=self.bootstrap_type
-                                                                            )
-                                                
-                                                model1.fit(X_train, y_train, verbose=1000,cat_features=self.cat_features, plot=False, eval_set=(X_test, y_test))
+                                                i = 1
+                                                for train_index, test_index in kf.split(X):
+                                                    X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+                                                    y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+                                                                        
+                                                    model1 = cat.CatBoostRegressor(random_state = self.randSeed,
+                                                                                task_type = self.task_type,
+                                                                                num_boost_round=num_boost_round,
+                                                                                eta=eta,
+                                                                                max_depth=max_depth,
+                                                                                l2_leaf_reg=lambdap,
+                                                                                objective=objective,
+                                                                                subsample=subsample,
+                                                                                early_stopping_rounds=early_stopping_rounds,         
+                                                                                grow_policy=grow_policy,
+                                                                                eval_metric=eval_metric,
+                                                                                bootstrap_type=self.bootstrap_type
+                                                                                )
+                                                    
+                                                    model1.fit(X_train, y_train, verbose=1000,cat_features=self.cat_features, plot=False, eval_set=(X_test, y_test))
                                                 
                                                 
 
@@ -101,6 +104,38 @@ class psCAT:
                                                 
                                                 cv_models[i] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                                 i += 1
+                                                
+                                            elif(self.cv == 1):
+                                                                
+                                                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
+                                                
+                                                model1 = cat.CatBoostRegressor(random_state = self.randSeed,
+                                                                                task_type = self.task_type,
+                                                                                num_boost_round=num_boost_round,
+                                                                                eta=eta,
+                                                                                max_depth=max_depth,
+                                                                                l2_leaf_reg=lambdap,
+                                                                                objective=objective,
+                                                                                subsample=subsample,
+                                                                                early_stopping_rounds=early_stopping_rounds,         
+                                                                                grow_policy=grow_policy,
+                                                                                eval_metric=eval_metric,
+                                                                                bootstrap_type=self.bootstrap_type
+                                                                                )
+                                                    
+                                                model1.fit(X_train, y_train, verbose=1000,cat_features=self.cat_features, plot=False, eval_set=(X_test, y_test))
+                                                
+                                                
+
+                                                preds = model1.predict(X)
+                                                rmse = mean_squared_error(y, preds, squared=False)
+                                                mae = mean_absolute_error(y, preds)
+                                                r2 = r2_score(y, preds)
+                                                mape = mean_absolute_percentage_error(y, preds)
+                                                medae = median_absolute_error(y, preds)
+                                                
+                                                cv_models[1] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
+                                                                 
                                             
                                             dfcv = pd.DataFrame(cv_models).T
                                                                 
@@ -228,8 +263,11 @@ class psCAT:
                                                     cv_models[i] = {"accuracy":accuracy, "precision":precision, "recall": recall, "f1":f1, "model": model1}
                                                     i += 1
                                             elif(self.cv == 1):
+                                                
+                                                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
+                                                
                                                 model1 = cat.CatBoostClassifier(random_state = self.randSeed,task_type = self.task_type,num_boost_round=num_boost_round,eta=eta,max_depth=max_depth,l2_leaf_reg=lambdap,objective=objective,subsample=subsample,early_stopping_rounds=early_stopping_rounds,grow_policy=grow_policy,eval_metric=eval_metric,bootstrap_type=self.bootstrap_type)
-                                                model1.fit(X, y, verbose=1000,cat_features=self.cat_features, plot=False)
+                                                model1.fit(X, y, verbose=1000,cat_features=self.cat_features, plot=False, eval_set=(X_test, y_test))
                                                 
                                                 preds = model1.predict(X)
                                                 accuracy = accuracy_score(y, preds)

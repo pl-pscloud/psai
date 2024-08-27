@@ -37,6 +37,7 @@ class psXGB:
     metric_out= "rmse"
     num_class = 2
     cv = 5
+    build_test_size = 0.2
    
     def __init__(self, all_params=None):
         
@@ -105,8 +106,17 @@ class psXGB:
                                                                         cv_models[i] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                                                         i += 1
                                                                 elif(self.cv == 1):
-                                                                    model1 = xgb.XGBRegressor(objective=objective,tree_method=tree_method, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight)
-                                                                    model1.fit(X, y, verbose=False, early_stopping_rounds=early_stopping_rounds)
+                                                                    
+                                                                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
+                                                                    
+                                                                    early_stopping = xgb.callback.EarlyStopping(
+                                                                            rounds=early_stopping_rounds,
+                                                                            save_best=True,
+                                                                            metric_name=eval_metric,
+                                                                        ) 
+                                                                    
+                                                                    model1 = xgb.XGBRegressor(callbacks=[early_stopping],objective=objective,tree_method=tree_method, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight)
+                                                                    model1.fit(X_train, y_train, verbose=False, eval_set=[(X_test, y_test)])
                                                                     
                                                                     preds = model1.predict(X)
                                                                     rmse = mean_squared_error(y, preds, squared=False)
@@ -270,8 +280,11 @@ class psXGB:
                                                                         cv_models[i] = {"accuracy":accuracy, "precision":precision, "recall": recall, "f1":f1, "model": model1}
                                                                         i += 1
                                                                 elif(self.cv == 1):
+                                                                    
+                                                                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
+                                                                    
                                                                     model1 = xgb.XGBClassifier(tree_method=tree_method,objective=objective, eval_metric=eval_metric, random_state=self.randSeed, n_estimators=n_estimator, max_depth=depth, learning_rate=eta, subsample=subsample, colsample_bytree=colsample_bytree, gamma=gammap, reg_alpha=alpha, reg_lambda=lambdap, min_child_weight=min_child_weight, num_class=self.num_class)
-                                                                    model1.fit(X, y, verbose=False)
+                                                                    model1.fit(X_train, y_train, eval_set=[(X_test, y_test)],verbose=False)
                                                                     
                                                                     preds = model1.predict(X)
                                                                     accuracy = accuracy_score(y, preds)
