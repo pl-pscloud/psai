@@ -96,10 +96,10 @@ class psTF:
                                         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
                                         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
                 
-                                        XT_train = np.asarray(X_train).astype(np.float32)
-                                        yT_train = np.asarray(y_train).astype(np.float32)
-                                        XT_test = np.asarray(X_test).astype(np.float32)
-                                        yT_test = np.asarray(y_test).astype(np.float32)
+                                        XT_train = X_train#np.asarray(X_train).astype(np.float32)
+                                        yT_train = y_train#np.asarray(y_train).astype(np.float32)
+                                        XT_test = X_test#np.asarray(X_test).astype(np.float32)
+                                        yT_test = y_test#np.asarray(y_test).astype(np.float32)
 
                                         model1 = Sequential()
                                         
@@ -115,7 +115,7 @@ class psTF:
                                             elif self.layers_param[layers][l]["type"] == "Flatten":
                                                 model1.add(Flatten())
                                         
-                                        model1.compile(optimizer=optimizer, loss=loss)
+                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out)
 
                                         # fit the model
                                         history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
@@ -123,13 +123,12 @@ class psTF:
                                         tt = time.time() - ts
 
                                         preds = model1.predict(XT_test)
-                                        y_pred_a=np.argmax(preds, axis=1)
                                         
-                                        rmse = mean_squared_error(yT_test, y_pred_a, squared=False)
-                                        mae = mean_absolute_error(yT_test, y_pred_a)
-                                        r2 = r2_score(yT_test, y_pred_a)
-                                        mape = mean_absolute_percentage_error(yT_test, y_pred_a)
-                                        medae = median_absolute_error(yT_test, y_pred_a)
+                                        rmse = mean_squared_error(yT_test, preds, squared=False)
+                                        mae = mean_absolute_error(yT_test, preds)
+                                        r2 = r2_score(yT_test, preds)
+                                        mape = mean_absolute_percentage_error(yT_test, preds)
+                                        medae = median_absolute_error(yT_test, preds)
                                         
                                         cv_models[i] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                         i += 1
@@ -142,7 +141,7 @@ class psTF:
                                     XT = np.asarray(X).astype(np.float32)
                                     yT = np.asarray(y).astype(np.float32)
                                     
-                                    yT_a=np.argmax(y, axis=1)
+                                    yT_a=np.argmax(yT, axis=1)
 
                                     model1 = Sequential()
                                     
@@ -166,13 +165,11 @@ class psTF:
                                     tt = time.time() - ts
 
                                     preds = model1.predict(XT)
-                                    y_pred_a=np.argmax(preds, axis=1)
-                                        
-                                    rmse = mean_squared_error(yT, y_pred_a, squared=False)
-                                    mae = mean_absolute_error(yT, y_pred_a)
-                                    r2 = r2_score(yT, y_pred_a)
-                                    mape = mean_absolute_percentage_error(yT, y_pred_a)
-                                    medae = median_absolute_error(yT, y_pred_a)
+                                    rmse = mean_squared_error(yT, preds, squared=False)
+                                    mae = mean_absolute_error(yT, preds)
+                                    r2 = r2_score(yT, preds)
+                                    mape = mean_absolute_percentage_error(yT, preds)
+                                    medae = median_absolute_error(yT, preds)
                                     
                                     cv_models[1] = {"rmse":rmse, "mae":mae, "mape": mape, "medae": medae,"r2":r2,  "model": model1}
                                 
@@ -228,17 +225,17 @@ class psTF:
         print("============= Best avg metrics ================")
         print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])
         
-        XT = np.asarray(X).astype(np.float32)
-        yT = np.asarray(y).astype(np.float32)
+        #XT = np.asarray(X).astype(np.float32)
+        #yT = np.asarray(y).astype(np.float32)
         
-        preds = best_model['model'].values[0].predict(XT)
-        y_pred_a=np.argmax(preds, axis=1)
+        preds = best_model['model'].values[0].predict(X)
+        #y_pred_a=np.argmax(preds, axis=1)
         
-        rmse = mean_squared_error(yT, y_pred_a, squared=False)
-        mae = mean_absolute_error(yT, y_pred_a)
-        r2 = r2_score(yT, y_pred_a)
-        mape = mean_absolute_percentage_error(yT, y_pred_a)
-        medae = median_absolute_error(yT, y_pred_a)
+        rmse = mean_squared_error(y, preds, squared=False)
+        mae = mean_absolute_error(y, preds)
+        r2 = r2_score(y, preds)
+        mape = mean_absolute_percentage_error(y, preds)
+        medae = median_absolute_error(y, preds)
         
         print("============= Best model ================")
         print("RMSE: ", rmse, "MAE: ", mae, "MAPE: ", mape, "MedAE: ", medae, "R2: ", r2)
@@ -246,7 +243,7 @@ class psTF:
         dfA = y.copy()
         varName = dfA.columns[0]
         dfA.rename(columns = {varName:'Actual'}, inplace = True) 
-        dfA['Predicted'] = y_pred_a
+        dfA['Predicted'] = preds
         
         plt.figure(figsize=(8, 5))
         sns.regplot(data=dfA, x="Actual", y="Predicted")
