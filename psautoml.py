@@ -12,6 +12,8 @@ import psai.pscat as pscat
 import psai.pstf as pstf
 import psai.psout as psout
 import math as math
+import time
+from datetime import datetime
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
 from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
@@ -51,6 +53,15 @@ class psAUTOML:
         
     def fit(self, X, y):
         
+        print("============== Training started for PSAUTOML ===============")
+        print("Estimators: ", self.estimators, " Task: ", self.task)
+        
+        ns = datetime.now()
+        ts = time.time()
+        
+        print("============================================================")
+        print("Time: ", ns.strftime("%d/%m/%Y %H:%M:%S"), "")
+        
         if self.task == 'classification':
 
             for e in self.estimators:
@@ -81,6 +92,23 @@ class psAUTOML:
                     self.tfcv.buildRegressor(X,y)
                 else:
                     print('Estimator not recognized')
+        
+        nt = datetime.now()
+        tt = time.time()
+        
+        atir = "s"
+        atime = tt - ts
+        if(atime > 3600):
+            atime = atime / 3600
+            atir = "h"
+        elif(atime > 60):
+            atime = atime / 60
+            atir = "m"
+        
+        print("============== Training complete============================")
+        print("Estimators: ", self.estimators, " Task: ", self.task)
+        print("============================================================")
+        print("Time: ", nt.strftime("%d/%m/%Y %H:%M:%S"), ", it takes: ", atime, atir )
     
 
                     
