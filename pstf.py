@@ -115,7 +115,7 @@ class psTF:
                                             elif self.layers_param[layers][l]["type"] == "Flatten":
                                                 model1.add(Flatten())
                                         
-                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out)
+                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
 
                                         # fit the model
                                         history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
@@ -157,7 +157,7 @@ class psTF:
                                         elif self.layers_param[layers][l]["type"] == "Flatten":
                                             model1.add(Flatten())
                                     
-                                    model1.compile(optimizer=optimizer, loss=loss)
+                                    model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
 
                                     # fit the model
                                     history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
