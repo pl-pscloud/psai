@@ -116,3 +116,31 @@ def removeColumnsHighNulls(df, threshold_percent):
     df_cleaned = df.drop(columns=columns_to_remove)
 
     return df_cleaned
+
+def outliers(df, cols, remove = False):
+    for col in cols:
+        # Wykres pudełkowy dla zmiennej BMI
+        plt.figure(figsize=(8,5))
+        sns.boxplot(x=df[col])
+        plt.title(col)
+        plt.xlabel(col)
+        plt.show()
+
+        # Obliczenie IQR dla BMI
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+
+        # Określenie granic dla wartości odstających
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+
+        # Zidentyfikowanie wartości odstających
+        outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+        print(f'Count of outliers: {outliers.shape[0]}')
+        
+        if remove == True:
+            df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+        
+    return df
+        
