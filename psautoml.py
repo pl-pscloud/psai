@@ -14,6 +14,7 @@ import psai.psout as psout
 import math as math
 import time
 from datetime import datetime
+from numba import cuda 
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
 from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
@@ -77,6 +78,12 @@ class psAUTOML:
                     self.tfcv.buildClassifier(X,y)
                 else:
                     print('Estimator not recognized')
+                
+                device = cuda.get_current_device()
+                device.reset()
+                
+                time.sleep(3)
+
         
         if self.task == 'regression':
 
@@ -92,6 +99,11 @@ class psAUTOML:
                     self.tfcv.buildRegressor(X,y)
                 else:
                     print('Estimator not recognized')
+                
+                device = cuda.get_current_device()
+                device.reset()
+                
+                time.sleep(3)
         
         nt = datetime.now()
         tt = time.time()
@@ -178,13 +190,13 @@ class psAUTOML:
                     
     def build(self, X, y):
         
-        print("============== Training started for PSAUTOML ===============")
+        print("============== Training started for PSAUTOML =================")
         print("Estimators: ", self.estimators, " Task: ", self.task)
         
         ns = datetime.now()
         ts = time.time()
         
-        print("============================================================")
+        print("==============================================================")
         print("Time: ", ns.strftime("%d/%m/%Y %H:%M:%S"), "")
         
         
@@ -205,6 +217,11 @@ class psAUTOML:
                     self.tf.buildClassifier(X,y)
                 else:
                     print('Estimator not recognized')
+                
+                device = cuda.get_current_device()
+                device.reset()
+                
+                time.sleep(3)
         
         if self.task == 'regression':
 
@@ -223,6 +240,11 @@ class psAUTOML:
                     self.tf.buildRegressor(X,y)
                 else:
                     print('Estimator not recognized')
+                
+                device = cuda.get_current_device()
+                device.reset()
+                
+                time.sleep(3)
                     
         nt = datetime.now()
         tt = time.time()
@@ -236,9 +258,9 @@ class psAUTOML:
             atime = atime / 60
             atir = "m"
         
-        print("============== Training complete============================")
+        print("============== Training complete=============================")
         print("Estimators: ", self.estimators, " Task: ", self.task)
-        print("============================================================")
+        print("=============================================================")
         print("Time: ", nt.strftime("%d/%m/%Y %H:%M:%S"), ", it takes: ", atime, atir )
                     
     def evaluate(self, X, y):
