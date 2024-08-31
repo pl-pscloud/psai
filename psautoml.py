@@ -115,46 +115,50 @@ class psAUTOML:
     
     def copyBestParams(self):
         if self.xgbcv != None:
+            ind = self.xgbcv.params.index[0]
             self.xgbparams = {
                 'cv' : 1,
                 'build_test_size': self.xgbparamscv['build_test_size'], 
                 'randSeed': self.xgbparamscv['randSeed'],
                 'tree_method_param': self.xgbparamscv['tree_method_param'],
-                'objective_param': [self.xgbcv.params['objective'][1]],
-                'max_depth': [self.xgbcv.params['max_depth'][1]],
+                'objective_param': [self.xgbcv.params['objective'][ind]],
+                'max_depth': [self.xgbcv.params['max_depth'][ind]],
                 'eval_metric_param': self.xgbparamscv['eval_metric_param'],  
-                'early_stopping_rounds_param': [self.xgbcv.params['early_stopping_rounds'][1]],
+                'early_stopping_rounds_param': [self.xgbcv.params['early_stopping_rounds'][ind]],
                 'num_boost_round': 10000,
-                'lambda_param': [self.xgbcv.params['lambda'][1]],
-                'alpha_param': [self.xgbcv.params['alpha'][1]],
-                'gamma_param': [self.xgbcv.params['gamma'][1]],
-                'min_child_weight_param': [self.xgbcv.params['min_child_weight'][1]],
-                'subsample_param': [self.xgbcv.params['subsample'][1]],
-                'eta_param': [self.xgbcv.params['eta'][1]],
-                'colsample_bytree_param': [self.xgbcv.params['colsample_bytree'][1]],
+                'lambda_param': [self.xgbcv.params['lambda'][ind]],
+                'alpha_param': [self.xgbcv.params['alpha'][ind]],
+                'gamma_param': [self.xgbcv.params['gamma'][ind]],
+                'min_child_weight_param': [self.xgbcv.params['min_child_weight'][ind]],
+                'subsample_param': [self.xgbcv.params['subsample'][ind]],
+                'eta_param': [self.xgbcv.params['eta'][ind]],
+                'colsample_bytree_param': [self.xgbcv.params['colsample_bytree'][ind]],
                 'num_class':  self.xgbparamscv['num_class'] if self.task == 'classification' else 0,
                 'metric_out':  self.xgbparamscv['metric_out']
                 }
         if self.catcv != None:
+            ind = self.catcv.params.index[0]
             self.catparams = {
                 'cv' : 1,
                 'randSeed' : self.catparamscv['randSeed'],
                 'build_test_size': self.catparamscv['build_test_size'],
                 'task_type' : self.catparamscv['task_type'],
-                'max_depth_param' : [self.catcv.params['max_depth'][1]],
-                'eval_metric_param' : [self.catcv.params['eval_metric'][1]],  
-                'early_stopping_rounds_param' : [self.catcv.params['early_stopping_rounds'][1]],
-                'objective_param' : [self.catcv.params['objective'][1]],  
-                'lambda_param' : [self.catcv.params['lambda'][1]], 
-                'subsample_param' : [self.catcv.params['subsample'][1]], 
-                'eta_param' : [self.catcv.params['eta'][1]], 
-                'grow_policy_param' : [self.catcv.params['grow_policy'][1]],
-                'bootstrap_type' : self.catcv.params['bootstrap_type'][1],
+                'max_depth_param' : [self.catcv.params['max_depth'][ind]],
+                'eval_metric_param' : [self.catcv.params['eval_metric'][ind]],  
+                'early_stopping_rounds_param' : [self.catcv.params['early_stopping_rounds'][ind]],
+                'objective_param' : [self.catcv.params['objective'][ind]],  
+                'lambda_param' : [self.catcv.params['lambda'][ind]], 
+                'subsample_param' : [self.catcv.params['subsample'][ind]], 
+                'eta_param' : [self.catcv.params['eta'][ind]], 
+                'grow_policy_param' : [self.catcv.params['grow_policy'][ind]],
+                'bootstrap_type' : self.catcv.params['bootstrap_type'][ind],
                 'metric_out' :  self.catparamscv['metric_out']
                 }
         if self.tfcv != None:
+            ind = self.tfcv.params.index[0]
+            
             layers = {
-                "nn1": self.tfcv.params['layers'][1]
+                "nn1": self.tfcv.params['layers'][ind]
             }
 
             self.tfparams = {
@@ -162,12 +166,12 @@ class psAUTOML:
                 'randSeed': self.tfparamscv['randSeed'],
                 'build_test_size': self.tfparamscv['build_test_size'],
                 'epochs_param': [1000],
-                'optimizer_param': [self.tfcv.params['optimizer'][1]],
-                'loss_param': [self.tfcv.params['loss'][1]],
-                'batch_size_param': [self.tfcv.params['batch_size'][1]],
-                'early_stopping_rounds_param': [self.tfcv.params['early_stopping_rounds'][1]],
+                'optimizer_param': [self.tfcv.params['optimizer'][ind]],
+                'loss_param': [self.tfcv.params['loss'][ind]],
+                'batch_size_param': [self.tfcv.params['batch_size'][ind]],
+                'early_stopping_rounds_param': [self.tfcv.params['early_stopping_rounds'][ind]],
                 'layers_param': layers,
-                'min_lr': self.tfcv.params['min_lr'][1],
+                'min_lr': self.tfcv.params['min_lr'][ind],
                 'metric_out': self.tfparamscv['metric_out']
                 }
     
