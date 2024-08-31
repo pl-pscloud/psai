@@ -14,7 +14,7 @@ import psai.psout as psout
 import math as math
 import time
 from datetime import datetime
-from numba import cuda 
+#from numba import cuda 
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
 from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
@@ -79,10 +79,7 @@ class psAUTOML:
                 else:
                     print('Estimator not recognized')
                 
-                device = cuda.get_current_device()
-                device.reset()
                 
-                time.sleep(3)
 
         
         if self.task == 'regression':
@@ -100,10 +97,7 @@ class psAUTOML:
                 else:
                     print('Estimator not recognized')
                 
-                device = cuda.get_current_device()
-                device.reset()
-                
-                time.sleep(3)
+
         
         nt = datetime.now()
         tt = time.time()
@@ -218,10 +212,7 @@ class psAUTOML:
                 else:
                     print('Estimator not recognized')
                 
-                device = cuda.get_current_device()
-                device.reset()
-                
-                time.sleep(3)
+
         
         if self.task == 'regression':
 
@@ -241,10 +232,6 @@ class psAUTOML:
                 else:
                     print('Estimator not recognized')
                 
-                device = cuda.get_current_device()
-                device.reset()
-                
-                time.sleep(3)
                     
         nt = datetime.now()
         tt = time.time()
