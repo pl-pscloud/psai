@@ -41,16 +41,22 @@ def scalerStd(df, col = None):
         
         return dfC, sc
 
-def scalerNorm(df, col):
+def scalerNorm(df, col = None):
     sc = MinMaxScaler(feature_range=(0, 1))
-
-    X1 = sc.fit_transform(df[col])
-    X1df = pd.DataFrame(X1, columns=df[col].columns, index=df.index)
-
-    dfC = df.copy()
-    dfC[col] = X1df[col]
     
-    return dfC, sc
+    if col is None:
+        X1 = sc.fit_transform(df)
+        X1df = pd.DataFrame(X1, index=df.index)
+        
+        return X1df, sc
+    else:
+        X1 = sc.fit_transform(df[col])
+        X1df = pd.DataFrame(X1, columns=df[col].columns, index=df.index)
+
+        dfC = df.copy()
+        dfC[col] = X1df[col]
+        
+        return dfC, sc
 
 def oneHot(df, col = None):
     

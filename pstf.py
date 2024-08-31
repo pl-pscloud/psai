@@ -1,4 +1,4 @@
-import time, random
+import time, random, gc
 import pandas as pd
 import numpy as np
 import warnings
@@ -11,7 +11,7 @@ from tensorflow import keras
 from keras import layers
 from keras.layers import Dense, Conv2D, MaxPooling2D, Dropout, Flatten, BatchNormalization, Activation, Conv1D, MaxPooling1D, LSTM, Bidirectional, GRU
 from keras.callbacks import EarlyStopping
-from keras import Sequential
+from keras import Sequential, backend
 from keras.layers import Dense
 
 import matplotlib.pyplot as plt
@@ -143,7 +143,7 @@ class psTF:
                                 elif(self.cv == 1):
                                 
                                     es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=early_stopping_rounds)
-                                    lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',factor=0.1,patience=5,min_lr=self.min_lr)
+                                    lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',factor=0.5,patience=10,min_lr=self.min_lr)
                                     
                                     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
                                     
@@ -211,6 +211,7 @@ class psTF:
                                                                 "batch_size":batch_size,
                                                                 "early_stopping_rounds":early_stopping_rounds,
                                                                 "layers":self.layers_param[layers],
+                                                                "min_lr": self.min_lr,
                                                                 "time":tt,
                                                                 "history": history,
                                                                 "model": cv_best_model['model'].values[0]
@@ -233,7 +234,8 @@ class psTF:
         print("============= Training completed =============")
         print("Trained ", modelCount-1, " models in ", atime, atir) 
         print("============= Best avg metrics ================")
-        print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])
+        print("RMSE: ", best_model['rmse'].values[0], "MAE: ", best_model['mae'].values[0], "MAPE: ", best_model['mape'].values[0], "MedAE: ", best_model['medae'].values[0], "R2: ", best_model['r2'].values[0])        
+        
         
         preds = best_model['model'].values[0].predict(X)
         
@@ -258,6 +260,10 @@ class psTF:
     
         self.model = best_model['model'].values[0]
         self.params = best_model
+        
+        backend.clear_session()
+        tf.compat.v1.reset_default_graph()
+        gc.collect()
 
     def buildClassifier(self, X , y):
         
@@ -326,7 +332,7 @@ class psTF:
                                             
                                             li += 1
                                         
-                                        model1.compile(optimizer=optimizer, loss=loss, metrics=['accuracy']) #, 'Precision', 'Recall'
+                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1)) #, 'Precision', 'Recall'
                                         history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test),callbacks=[es,lr])#callbacks=[es,lr]
                                         
                                         preds = model1.predict(XT_test)
@@ -344,10 +350,7 @@ class psTF:
                                     es = EarlyStopping(monitor='loss', mode='min', verbose=1, patience=early_stopping_rounds)
                                     lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='loss',factor=0.1,patience=5,min_lr=self.min_lr)
                                     
-                                    XT = np.asarray(X).astype(np.float32)
-                                    yT = np.asarray(y).astype(np.float32)
-                                    
-                                    yT_a=np.argmax(y, axis=1)
+                                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.build_test_size, random_state=self.randSeed)
 
                                     model1 = Sequential()
                                     
@@ -355,7 +358,7 @@ class psTF:
                                     for l in self.layers_param[layers]:
                                         if self.layers_param[layers][l]["type"] == "Dense":
                                             if li == 1:
-                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(XT_train.shape[1],)))
+                                                model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"], input_shape=(X_train.shape[1],)))
                                             else:
                                                 model1.add(Dense(self.layers_param[layers][l]["n"], activation=self.layers_param[layers][l]["activation"]))
                                         elif self.layers_param[layers][l]["type"] == "Conv1D":
@@ -369,16 +372,16 @@ class psTF:
                                         
                                         li += 1
                                     
-                                    model1.compile(optimizer=optimizer, loss=loss, metrics=['accuracy']) #, 'Precision', 'Recall'
-                                    history = model1.fit(XT, yT, epochs=epochs, batch_size=batch_size, verbose=self.verbose, callbacks=[es,lr])#callbacks=[es,lr]
+                                    model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1)) #, 'Precision', 'Recall'
+                                    history = model1.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(X_test, y_test),callbacks=[es,lr])#callbacks=[es,lr]
                                     
-                                    preds = model1.predict(XT)
+                                    preds = model1.predict(X_test)
                                     y_pred_a=np.argmax(preds, axis=1)
                                     
-                                    accuracy = accuracy_score(y_pred_a, yT)
-                                    precision = precision_score(y_pred_a, yT, average='weighted')
-                                    recall = recall_score(y_pred_a, yT, average='weighted')
-                                    f1 = f1_score(y_pred_a, yT, average='weighted')
+                                    accuracy = accuracy_score(y_pred_a, y_test)
+                                    precision = precision_score(y_pred_a, y_test, average='weighted')
+                                    recall = recall_score(y_pred_a, y_test, average='weighted')
+                                    f1 = f1_score(y_pred_a, y_test, average='weighted')
                                     
                                     cv_models[1] = {"accuracy":accuracy, "precision":precision, "recall": recall, "f1":f1, "model": model1}
                                     
@@ -413,6 +416,7 @@ class psTF:
                                                                 "batch_size":batch_size,
                                                                 "early_stopping_rounds":early_stopping_rounds,
                                                                 "layers":self.layers_param[layers],
+                                                                "min_lr": self.min_lr,
                                                                 "time":tt,
                                                                 "history": history,
                                                                 "model": model1
@@ -453,6 +457,11 @@ class psTF:
     
         self.model = best_model['model'].values[0]
         self.params = best_model
+        
+        backend.clear_session()
+        tf.compat.v1.reset_default_graph()
+        gc.collect()
+
 
     def predict_proba(self,X):
         Xn = np.asarray(X).astype(np.float32)

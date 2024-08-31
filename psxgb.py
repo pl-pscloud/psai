@@ -17,7 +17,6 @@ warnings.filterwarnings("ignore")
 class psXGB:
     model = None
     params = None
-    num_boost_round = 10000
     num_parallel_tree = 1
     tree_method_param = ["gpu_hist"]
     objective_param = ["reg:squarederror"]

@@ -161,12 +161,16 @@ class psCAT:
                                                 tir = "m"
                                             
                                             fitted_models[modelCount] = {"rmse":rmse, "mae":mae, "mape": mape, "medae":medae, "r2":r2, 
-                                                                            "objective":objective,
-                                                                            "early_stopping_rounds":early_stopping_rounds,
-                                                                            "eta":eta,
-                                                                            "max_depth":max_depth,
-                                                                            "lambda":lambdap,
-                                                                            "eval_metric":eval_metric,
+                                                                            "objective": objective,
+                                                                            "early_stopping_rounds": early_stopping_rounds,
+                                                                            "eta": eta,
+                                                                            "max_depth": max_depth,
+                                                                            "lambda": lambdap,
+                                                                            "eval_metric": eval_metric,
+                                                                            "grow_policy": grow_policy,
+                                                                            "subsample": subsample,
+                                                                            "task_type": self.task_type,
+                                                                            "bootstrap_type": self.bootstrap_type,
                                                                             "time":tt,
                                                                             "model": cv_best_model['model'].values[0]
                                                                             }
@@ -310,6 +314,7 @@ class psCAT:
                                                                             "grow_policy":grow_policy,
                                                                             "subsample":subsample,
                                                                             "task_type":self.task_type,
+                                                                            "bootstrap_type" : self.bootstrap_type,
                                                                             "time":tt,
                                                                             "model": cv_best_model['model'].values[0]
                                                                             }
