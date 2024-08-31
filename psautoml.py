@@ -326,6 +326,10 @@ class psAUTOML:
         self.cat.model.save_model(folder_modelu + "/cat.json",format="json",export_parameters=None,pool=None)
         self.tf.model.save(folder_modelu + '/tf.h5')
         
+        print("Ensamble models were saved to:")
+        print(folder_modelu)
+        return folder_modelu
+        
     def loadModel(self, name, num_class=None):
         
         if self.task == 'classification':
