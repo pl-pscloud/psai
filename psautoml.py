@@ -215,7 +215,7 @@ class psAUTOML:
                     self.xgb.buildRegressor(X,y)
                 elif e == 'cat':
                     self.catparams['cv'] = 1
-                    self.cat = pscat.psCAT(all_params=self.catparamscv)
+                    self.cat = pscat.psCAT(all_params=self.catparams)
                     self.cat.buildRegressor(X,y)
                 elif e == 'tf':
                     self.tfparams['cv'] = 1
