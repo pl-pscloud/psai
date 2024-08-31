@@ -310,13 +310,16 @@ class psAUTOML:
     def saveModel(self, name):
         import os
         folder = "trained_models"
-        folder_modelu = folder + "\/" + name
+        
+        current_datetime = datetime.now().strftime("%Y%M%d%H%M%S")
+        
+        folder_modelu = folder + "-" + current_datetime + "/" + name
         
         if not os.path.exists(folder):
             os.mkdir(folder)
         
         if not os.path.exists(folder_modelu):
-            os.mkdir(folder + "\/" + name)
+            os.mkdir(folder_modelu)
         
         
         self.xgb.model.save_model(folder_modelu + "/xgb.json")
@@ -350,10 +353,10 @@ class psAUTOML:
         
     def getBestParamsForFit(self, estimator):
         if(estimator == 'xgb'):
-            return pd.DataFrame(self.xgbparams)
+            return self.xgbparams
         elif(estimator == 'cat'):
-            return pd.DataFrame(self.catparams)
+            return self.catparams
         elif(estimator == 'tf'):
-            return pd.DataFrame(self.tfparams)
+            return self.tfparams
         else:
             print('Estimator not recognized')
