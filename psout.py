@@ -68,11 +68,11 @@ def oneHot(df, col = None):
     
     return dfC
 
-def labelEnc(df):
+def labelEnc(df,col):
     
     dfC = df.copy()
     enc = LabelEncoder()
-    dfC = enc.fit_transform(dfC)
+    dfC[col] = enc.fit_transform(dfC[col])
     
     return dfC,enc
 

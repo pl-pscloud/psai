@@ -305,10 +305,10 @@ class psTF:
                                         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
                                         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
                                         
-                                        XT_train = np.asarray(X_train).astype(np.float32)
-                                        yT_train = np.asarray(y_train).astype(np.float32)
-                                        XT_test = np.asarray(X_test).astype(np.float32)
-                                        yT_test = np.asarray(y_test).astype(np.float32)
+                                        XT_train = X_train#np.asarray(X_train).astype(np.float32)
+                                        yT_train = y_train#np.asarray(y_train).astype(np.float32)
+                                        XT_test = X_test#np.asarray(X_test).astype(np.float32)
+                                        yT_test = y_test#np.asarray(y_test).astype(np.float32)
                                         
                                         y_test_a=np.argmax(y_test, axis=1)
 
