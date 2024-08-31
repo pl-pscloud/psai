@@ -326,9 +326,9 @@ class psAUTOML:
         self.cat.model.save_model(folder_modelu + "/cat.json",format="json",export_parameters=None,pool=None)
         self.tf.model.save(folder_modelu + '/tf.h5')
         
-    def loadModel(self, type, name, num_class=None):
-        if type == 'classification':
-            
+    def loadModel(self, name, num_class=None):
+        
+        if self.task == 'classification':
             if num_class != None:
                 self.xgbparams = {}
                 self.xgbparams['num_class'] = num_class
@@ -341,10 +341,12 @@ class psAUTOML:
             self.cat.model = CatBoostClassifier()
             self.cat.model.load_model(name + "/cat.json", format="json")
             
-        if type == 'regression':
+        if self.task == 'regression':
+            self.xgb = psxgb.psXGB()
             self.xgb.model = XGBRegressor()
             self.xgb.model.load_model(name + "/xgb.json")
             
+            self.cat = pscat.psCAT()
             self.cat.model = CatBoostRegressor()
             self.cat.model.load_model(name + "/cat.json", format="json")
         
