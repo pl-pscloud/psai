@@ -313,7 +313,7 @@ class psAUTOML:
         
         current_datetime = datetime.now().strftime("%Y%M%d%H%M%S")
         
-        folder_modelu = folder + "-" + current_datetime + "/" + name
+        folder_modelu = folder + "/" + name + current_datetime
         
         if not os.path.exists(folder):
             os.mkdir(folder)
