@@ -178,6 +178,7 @@ class psAUTOML:
                 'early_stopping_rounds_param': [self.tfcv.params['early_stopping_rounds'][ind]],
                 'layers_param': layers,
                 'min_lr': self.tfcv.params['min_lr'][ind],
+                'metrics': self.tfparamscv['metrics'],
                 'metric_out': self.tfparamscv['metric_out']
                 }
     

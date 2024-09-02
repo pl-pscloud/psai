@@ -34,6 +34,7 @@ class psTF:
     batch_size_param = [32]
     early_stopping_rounds_param = [10, 20, 50, 100]
     metric_out = "rmse"
+    metrics = ["mae"]
     min_lr = 0.001
     verbose=0
     cv = 5
@@ -122,7 +123,7 @@ class psTF:
                                                 
                                             li += 1
                                         
-                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
+                                        model1.compile(optimizer=optimizer, loss=loss, metrics=self.metrics)
 
                                         # fit the model
                                         history = model1.fit(XT_train, yT_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(XT_test, yT_test), callbacks=[es,lr])
@@ -167,7 +168,7 @@ class psTF:
                                             
                                         li += 1
                                     
-                                    model1.compile(optimizer=optimizer, loss=loss, metrics=self.metric_out.split(sep=',', maxsplit=-1))
+                                    model1.compile(optimizer=optimizer, loss=loss, metrics=self.metrics)
 
                                     # fit the model
                                     history = model1.fit(X_train, y_train, epochs=epochs, batch_size=batch_size, verbose=self.verbose, validation_data=(X_test, y_test), callbacks=[es,lr])

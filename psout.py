@@ -1,6 +1,7 @@
 import pandas as pd
 from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler,MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler,MinMaxScaler, LabelEncoder, OneHotEncoder
+from sklearn.impute import SimpleImputer
 from feature_engine.selection import DropCorrelatedFeatures
 from imblearn.over_sampling import SMOTE
 import matplotlib.pyplot as plt
@@ -26,20 +27,24 @@ def isoForest(df, col, contamination=0.1):
 
 def scalerStd(df, col = None):
     sc = StandardScaler()
+    dfC = df.copy()
 
     if col is None:
-        X1 = sc.fit_transform(df)
-        X1df = pd.DataFrame(X1, index=df.index)
+        numcols = dfC.select_dtypes(include=['int64', 'float64']).columns.to_numpy()
         
-        return X1df, sc
+        X1 = sc.fit_transform(dfC[numcols])
+        X1df = pd.DataFrame(X1, columns=dfC[numcols].columns, index=dfC.index)
+        
+        dfC[numcols] = X1df[numcols]
+        
+        return dfC, sc, numcols
     else:
-        X1 = sc.fit_transform(df[col])
-        X1df = pd.DataFrame(X1, columns=df[col].columns, index=df.index)
+        X1 = sc.fit_transform(dfC[col])
+        X1df = pd.DataFrame(X1, columns=df[col].columns, index=dfC.index)
 
-        dfC = df.copy()
         dfC[col] = X1df[col]
         
-        return dfC, sc
+        return dfC, sc, col
 
 def scalerNorm(df, col = None):
     sc = MinMaxScaler(feature_range=(0, 1))
@@ -58,15 +63,18 @@ def scalerNorm(df, col = None):
         
         return dfC, sc
 
-def oneHot(df, col = None):
+def oneHot(df, catcols = None):
     
     dfC = df.copy()
-    if col == None:
-        dfC = pd.get_dummies(dfC)
-    else:
-        dfC = pd.get_dummies(dfC, columns=col)
     
-    return dfC
+    if catcols is None:
+        catcols = dfC.select_dtypes(include=['object']).columns
+    
+    enc = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
+    dfE = pd.DataFrame(enc.fit_transform(dfC[catcols]))
+    dfE.index = dfC.index
+    
+    return dfE, enc, catcols
 
 def labelEnc(df,col):
     
@@ -82,7 +90,32 @@ def dropCorr(df, threshold=0.85):
     corrolated = DropCorrelatedFeatures(method="pearson", threshold=0.85)
     corrolated.fit(dfC)  
     dfC = corrolated.transform(dfC)
+    
     return dfC
+
+def simpleImputer(df, cat_strategy = 'most_frequent', num_strategy = 'constant', cols = None):
+    dfC = df.copy()
+    numerical_imputer = SimpleImputer(strategy=num_strategy)
+    categorical_imputer = SimpleImputer(strategy=cat_strategy)
+    numcols = None
+    catcols = None
+    
+    if cols ==None:
+        numcols = dfC.select_dtypes(include=['int64', 'float64']).columns
+        catcols = dfC.select_dtypes(include=['object']).columns
+        
+        dfC[numcols] = numerical_imputer.fit_transform(dfC[numcols])
+        dfC[catcols] = categorical_imputer.fit_transform(dfC[catcols])
+        
+    else:
+        for col in cols:
+            if dfC[col].dtype in ['int64','float64']:
+                dfC[col] = numerical_imputer.fit_transform(dfC[col])
+            
+            if dfC[col].dtype in ['object']:
+                dfC[col] = categorical_imputer.fit_transform(dfC[col])
+    
+    return dfC, categorical_imputer, numerical_imputer, catcols.to_numpy(), numcols.to_numpy()
 
 def dropRowsZero(df, cols):
     dfC = df.copy()
@@ -124,6 +157,9 @@ def removeColumnsHighNulls(df, threshold_percent):
     return df_cleaned
 
 def outliers(df, cols, remove = False):
+    
+    dfC = df.copy()
+    
     for col in cols:
         # Wykres pudełkowy dla zmiennej BMI
         plt.figure(figsize=(8,5))
@@ -133,8 +169,8 @@ def outliers(df, cols, remove = False):
         plt.show()
 
         # Obliczenie IQR dla BMI
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
+        Q1 = dfC[col].quantile(0.25)
+        Q3 = dfC[col].quantile(0.75)
         IQR = Q3 - Q1
 
         # Określenie granic dla wartości odstających
@@ -142,11 +178,19 @@ def outliers(df, cols, remove = False):
         upper_bound = Q3 + 1.5 * IQR
 
         # Zidentyfikowanie wartości odstających
-        outliers = df[(df[col] < lower_bound) | (df[col] > upper_bound)]
+        outliers = dfC[(dfC[col] < lower_bound) | (dfC[col] > upper_bound)]
         print(f'Count of outliers: {outliers.shape[0]}')
         
         if remove == True:
-            df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
+            dfC = dfC[(dfC[col] >= lower_bound) & (dfC[col] <= upper_bound)]
         
-    return df
+    return dfC
         
+def removeColumnsWithHighCardinality(df, threshold = 10):
+    high_cardinality_cols = [col for col in df.columns if df[col].dtype == 'object' and df[col].nunique() > threshold]
+    
+    dfC = df.copy()
+    dfC = dfC.drop(columns=high_cardinality_cols)
+    
+    return dfC, high_cardinality_cols
+    
