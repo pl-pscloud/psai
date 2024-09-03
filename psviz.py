@@ -49,3 +49,11 @@ def pairCategory(df):
     for col in df.select_dtypes(include=[np.number]).columns:
         sns.pairplot(df, hue=col, size=2.5);
     
+def corrplot(df, w=20, h=16):
+    numcols = df.select_dtypes(include=['int64', 'float64']).columns
+    correlation_matrix = df[numcols].corr()
+
+    plt.figure(figsize=(w, h))
+    sns.heatmap(correlation_matrix, annot=True, cmap='coolwarm', vmin=-1, vmax=1)
+    plt.title('Correlation Matrix')
+    plt.show()

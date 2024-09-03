@@ -14,6 +14,8 @@ import psai.psout as psout
 import math as math
 import time
 from datetime import datetime
+import json
+import os
 #from numba import cuda 
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
@@ -318,12 +320,11 @@ class psAUTOML:
             return predsa           
         
     def saveModel(self, name):
-        import os
         folder = "trained_models"
         
-        current_datetime = datetime.now().strftime("%Y%M%d%H%M%S")
+        current_datetime = datetime.now().strftime("%Y%m%d%H%M%S")
         
-        folder_modelu = folder + "/" + name + current_datetime
+        folder_modelu = folder + "/" + name + "-" + current_datetime
         
         if not os.path.exists(folder):
             os.mkdir(folder)
@@ -335,6 +336,15 @@ class psAUTOML:
         self.xgb.model.save_model(folder_modelu + "/xgb.json")
         self.cat.model.save_model(folder_modelu + "/cat.json",format="json",export_parameters=None,pool=None)
         self.tf.model.save(folder_modelu + '/tf.h5')
+        
+        allParams = {
+            "xgb" : self.xgbparams,
+            "cat" : self.catparams,
+            "tf"  : self.tfparams
+        }
+        
+        with open(folder_modelu +'/allparams.json', 'w') as file:
+            json.dump(allParams, file, indent=4)
         
         print("Ensamble models were saved to:")
         print(folder_modelu)
@@ -366,6 +376,16 @@ class psAUTOML:
         
         self.tf = pstf.psTF()
         self.tf.model = keras.models.load_model(name + '/tf.h5')
+        
+        #load params if exists
+        paramsPath = name + 'allparams.json'
+        if os.path.exists(paramsPath):
+            with open(paramsPath, 'r') as file:
+                data = json.load(file)
+
+            self.xgbparams = data["xgbparams"]
+            self.catparams = data["catparams"]
+            self.tfparams = data["tfparams"]
         
     def getBestParamsForFit(self, estimator):
         if(estimator == 'xgb'):
