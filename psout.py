@@ -87,11 +87,11 @@ def labelEnc(df,col):
 
 def dropCorr(df, threshold=0.85):
     dfC = df.copy()
-    corrolated = DropCorrelatedFeatures(method="pearson", threshold=0.85)
+    corrolated = DropCorrelatedFeatures(method="pearson", threshold=threshold)
     corrolated.fit(dfC)  
     dfC = corrolated.transform(dfC)
     
-    return dfC
+    return dfC, corrolated
 
 def simpleImputer(df, cat_strategy = 'most_frequent', num_strategy = 'constant', cols = None):
     dfC = df.copy()
