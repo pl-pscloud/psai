@@ -192,7 +192,13 @@ class psTF:
                                 medae = dfcv['medae'].mean()
                                 r2 = dfcv['r2'].mean()
                                 
-                                cv_best_model = dfcv[dfcv[self.metric_out] == dfcv[self.metric_out].min()]
+                                cv_best_model = dfcv[dfcv[self.metric_out] == dfcv[self.metric_out].min()].copy()
+                                
+                                for c in cv_models:
+                                   del cv_models[c]['model']
+                                
+                                del dfcv
+                                del cv_models
                                 
                                 avgTime = (time.time() - buildTime) / modelCount
                                 timeRemaining = (allVarsCount - modelCount) * avgTime
@@ -394,7 +400,13 @@ class psTF:
                                 recall = dfcv['recall'].mean()
                                 f1 = dfcv['f1'].mean()
                                 
-                                cv_best_model = dfcv[dfcv[self.metric_out] == dfcv[self.metric_out].max()]  
+                                cv_best_model = dfcv[dfcv[self.metric_out] == dfcv[self.metric_out].max()].copy()
+                                
+                                for c in cv_models:
+                                   del cv_models[c]['model']
+                                
+                                del dfcv
+                                del cv_models
                                 
                                     
                                 tt = time.time() - ts

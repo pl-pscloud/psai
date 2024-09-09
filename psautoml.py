@@ -16,7 +16,8 @@ import time
 from datetime import datetime
 import json
 import os
-#from numba import cuda 
+from numba import cuda 
+import multiprocessing
 
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error, median_absolute_error
 from sklearn.metrics import roc_curve, roc_auc_score, classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, ConfusionMatrixDisplay
@@ -55,9 +56,9 @@ class psAUTOML:
         self.tfparamscv = tfparams
         
         
-    def fit(self, X, y):
+    def fit(self, X, y, estimators = None):
         
-        print("============== Training started for PSAUTOML ===============")
+        print("============== Fit started for PSAUTOML ===============")
         print("Estimators: ", self.estimators, " Task: ", self.task)
         
         ns = datetime.now()
@@ -66,9 +67,12 @@ class psAUTOML:
         print("============================================================")
         print("Time: ", ns.strftime("%d/%m/%Y %H:%M:%S"), "")
         
+        if estimators == None:
+            estimators = self.estimators
+        
         if self.task == 'classification':
 
-            for e in self.estimators:
+            for e in estimators:
                 if e == 'xgb':
                     self.xgbcv = psxgb.psXGB(all_params=self.xgbparamscv)
                     self.xgbcv.buildClassifier(X,y)
@@ -86,7 +90,7 @@ class psAUTOML:
         
         if self.task == 'regression':
 
-            for e in self.estimators:
+            for e in estimators:
                 if e == 'xgb':
                     self.xgbcv = psxgb.psXGB(all_params=self.xgbparamscv)
                     self.xgbcv.buildRegressor(X,y)
@@ -113,7 +117,7 @@ class psAUTOML:
             atime = atime / 60
             atir = "m"
         
-        print("============== Training complete============================")
+        print("============== Fit complete============================")
         print("Estimators: ", self.estimators, " Task: ", self.task)
         print("============================================================")
         print("Time: ", nt.strftime("%d/%m/%Y %H:%M:%S"), ", it takes: ", atime, atir )
@@ -187,7 +191,7 @@ class psAUTOML:
                     
     def build(self, X, y):
         
-        print("============== Training started for PSAUTOML =================")
+        print("============== Build started for PSAUTOML =================")
         print("Estimators: ", self.estimators, " Task: ", self.task)
         
         ns = datetime.now()
@@ -248,7 +252,7 @@ class psAUTOML:
             atime = atime / 60
             atir = "m"
         
-        print("============== Training complete=============================")
+        print("============== Build complete=============================")
         print("Estimators: ", self.estimators, " Task: ", self.task)
         print("=============================================================")
         print("Time: ", nt.strftime("%d/%m/%Y %H:%M:%S"), ", it takes: ", atime, atir )
