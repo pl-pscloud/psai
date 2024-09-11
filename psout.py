@@ -71,7 +71,7 @@ def oneHot(df, catcols = None):
         catcols = dfC.select_dtypes(include=['object']).columns
     
     enc = OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore')
-    dfE = pd.DataFrame(enc.fit_transform(dfC[catcols]))
+    dfE = pd.DataFrame(enc.fit_transform(dfC[catcols]),columns=catcols)
     dfE.index = dfC.index
     
     return dfE, enc, catcols
@@ -88,8 +88,7 @@ def labelEnc(df,col):
 def dropCorr(df, threshold=0.85):
     dfC = df.copy()
     corrolated = DropCorrelatedFeatures(method="pearson", threshold=threshold)
-    corrolated.fit(dfC)  
-    dfC = corrolated.transform(dfC)
+    dfC = corrolated.fit_transform(dfC)  
     
     return dfC, corrolated
 

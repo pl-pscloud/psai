@@ -4,13 +4,10 @@ sns.set_palette(palette=palette)
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import warnings
-import psai.psviz as psviz
 import psai.psxgb as psxgb
 import psai.pscat as pscat
 import psai.pstf as pstf
-import psai.psout as psout
 import math as math
 import time
 from datetime import datetime
@@ -287,6 +284,14 @@ class psAUTOML:
             preds_tf = pd.DataFrame(self.tf.predict(X), columns=['preds'])
             preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['preds'])
             preds_cat = pd.DataFrame(self.cat.predict(X), columns=['preds'])
+            
+            rmse_xgb = mean_squared_error(preds_xgb, y,squared = False)
+            rmse_cat = mean_squared_error(preds_cat, y,squared = False)
+            rmse_tf = mean_squared_error(preds_tf, y,squared = False)
+            
+            mae_xgb = mean_absolute_error(preds_xgb, y)
+            mae_cat = mean_absolute_error(preds_cat, y)
+            mae_tf = mean_absolute_error(preds_tf, y)
            
             r2_xgb = r2_score(preds_xgb, y)
             r2_cat = r2_score(preds_cat, y)
@@ -294,11 +299,14 @@ class psAUTOML:
 
             predsa = (preds_xgb + preds_cat + preds_tf)/3
             r2 = r2_score(predsa, y)
+            rmse = mean_squared_error(predsa, y, squared=False)
+            mae = mean_absolute_error(predsa, y)
 
-            print('r2_xgb : ', r2_xgb)
-            print('r2_cat : ', r2_cat)
-            print('r2_tf  : ', r2_tf)
-            print('r2/3   : ', r2)                
+            print('XGB | rmse: ', rmse_xgb, ' | mae: ', mae_xgb, ' | r2: ', r2_xgb)
+            print('CAT | rmse: ', rmse_cat, ' | mae: ', mae_cat, ' | r2: ', r2_cat)
+            print('TF  | rmse: ', rmse_tf, ' | mae: ', mae_tf, ' | r2: ', r2_tf)
+            print('================================================================')
+            print('X   | rmse: ', rmse, ' | mae: ', mae, ' | r2: ', r2)                
     
     def predict(self, X):
         
@@ -311,13 +319,13 @@ class psAUTOML:
             predsa = (preds_xgba + preds_cata + preds_tfa)/3
             predsa_a=np.argmax(predsa, axis=1)
             
-            return predsa_a
+            return pd.DataFrame(predsa_a, columns=['predicted'])
         
         if self.task == 'regression':
             
-            preds_tf = pd.DataFrame(self.tf.predict(X), columns=['preds'])
-            preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['preds'])
-            preds_cat = pd.DataFrame(self.cat.predict(X), columns=['preds'])
+            preds_tf = pd.DataFrame(self.tf.predict(X), columns=['predicted'])
+            preds_xgb = pd.DataFrame(self.xgb.predict(X), columns=['predicted'])
+            preds_cat = pd.DataFrame(self.cat.predict(X), columns=['predicted'])
            
             predsa = (preds_xgb + preds_cat + preds_tf)/3
             
