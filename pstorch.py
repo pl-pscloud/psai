@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from sklearn.model_selection import KFold, StratifiedKFold, RandomizedSearchCV, GridSearchCV, cross_val_score, train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_score, roc_auc_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_score, roc_auc_score, f1_score
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -102,10 +102,10 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
                 #Dropout
                 layers.append(nn.Dropout(layer[1]))
                 
-        if self.verbose == 2:
-            print(f"Layers: {layers}")
+        if self.verbose >= 2:
             print(f"Embedding layers: {embedding_layers}")
-
+            print(f"Layers: {layers}")
+            
         return nn.Sequential(*layers).to(self.device)
 
     def forward_embeddings(self, cat_features):
@@ -113,7 +113,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             return None
 
         # Debugging to print the range of cat_features
-        if self.verbose == 3:
+        if self.verbose >= 3:
             print(f"Categorical Features Tensor Before Clamping: {cat_features}")
 
         # Replace -1 (unknown categories) with 0 to safely use the "unknown" index in embedding
@@ -125,7 +125,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             cat_features[:, i] = torch.clamp(cat_features[:, i], min=0, max=num_categories - 1)
 
         # Debugging to ensure the features are correctly within bounds
-        if self.verbose == 3:
+        if self.verbose >= 3:
             print(f"Categorical Features Tensor After Clamping: {cat_features}")
 
         embeddings = [embedding(cat_features[:, i]) for i, embedding in enumerate(self.embedding_layers)]
@@ -152,6 +152,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             return nn.BCELoss()
         elif self.loss == 'bcelogit':
             return nn.BCEWithLogitsLoss()
+        elif self.loss == 'crossentropy':
+            return nn.CrossEntropyLoss()
         else:
             raise ValueError(f"Unsupported loss function: {self.loss}")
 
@@ -283,18 +285,20 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             if outputs.shape[1] == 1:
                 # Binary classification
                 val_auc = roc_auc_score(all_labels, all_probs)
+                val_f1 = f1_score(all_labels, all_preds, average='binary')
             else:
                 # Multi-class classification
                 val_auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
+                val_f1 = f1_score(all_labels, all_preds, average='macro')
 
             # Scheduler step
             scheduler.step(val_loss)
 
-            self.eval_info[epoch] = {'train_loss': train_loss, 'val_loss': val_loss, 'val_acc': val_acc, 'val_auc': val_auc}
+            self.eval_info[epoch] = {'train_loss': train_loss, 'val_loss': val_loss, 'val_acc': val_acc, 'val_auc': val_auc, 'val_f1': val_f1}
 
             # Logging
-            if self.verbose == 2:
-                print(f"Epoch {epoch+1}/{self.max_epochs} - Train Loss: {train_loss:.5f} - Val Loss: {val_loss:.5f} - Val Accuracy: {val_acc:.5f} - Val AUC-ROC: {val_auc:.5f}")
+            if self.verbose >= 2:
+                print(f"Epoch {epoch+1}/{self.max_epochs} - Train Loss: {train_loss:.5f} - Val Loss: {val_loss:.5f} - Val Accuracy: {val_acc:.5f} - Val AUC-ROC: {val_auc:.5f} - Val F1: {val_f1:.5f}")
 
             # Early stopping
             if val_loss < best_val_loss:
@@ -306,7 +310,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             else:
                 patience_counter += 1
                 if patience_counter >= self.patience:
-                    if self.verbose == 1 or self.verbose == 2:
+                    if self.verbose >= 1:
                         print(f"Early stopping at epoch {epoch+1}")
                     break
 
