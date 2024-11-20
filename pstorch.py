@@ -71,6 +71,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             layers.append(nn.Tanh())
         elif self.net[0][3] == 5:
             layers.append(nn.SiLU())
+        elif self.net[0][3] == 6:
+            layers.append(nn.Softmax())
 
 
         # Iterate over the rest of the net configuration
@@ -97,6 +99,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
                     layers.append(nn.Tanh())
                 elif layer[3] == 5:
                     layers.append(nn.SiLU())
+                elif layer[3] == 6:
+                    layers.append(nn.Softmax())
                     
             elif layer[0] == 0:
                 #Dropout
