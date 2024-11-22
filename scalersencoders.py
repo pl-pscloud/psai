@@ -1,4 +1,4 @@
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler, QuantileTransformer, PowerTransformer, FunctionTransformer, LabelEncoder, OrdinalEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler, QuantileTransformer, PowerTransformer, FunctionTransformer, LabelEncoder, OrdinalEncoder, MinMaxScaler
 from sklearn.feature_extraction import FeatureHasher
 from sklearn.feature_selection import RFE
 from sklearn.experimental import enable_iterative_imputer
@@ -30,8 +30,9 @@ numerical_imputer_config = {
 
 numerical_scaler_config = {
     0: None,
-    1: StandardScaler(), 
-    2: RobustScaler(),
+    1: StandardScaler(),
+    2: MinMaxScaler(feature_range=(0, 1)),
+    3: RobustScaler(),
 }
 
 skew_imputer_config = {
@@ -46,11 +47,12 @@ skew_imputer_config = {
 skew_scaler_config = {
     0: None,
     1: StandardScaler(),    
-    2: QuantileTransformer(output_distribution='normal'),
+    2: MinMaxScaler(feature_range=(0, 1)),
     3: RobustScaler(),
-    4: PowerTransformer(method='yeo-johnson', standardize=True),
-    5: PowerTransformer(method='box-cox', standardize=True),
-    6: FunctionTransformer(np.log1p, validate=True),
+    4: QuantileTransformer(output_distribution='normal'),
+    5: PowerTransformer(method='yeo-johnson', standardize=True),
+    6: PowerTransformer(method='box-cox', standardize=True),
+    7: FunctionTransformer(np.log1p, validate=True),
 }
 
 high_imputer_config = {
