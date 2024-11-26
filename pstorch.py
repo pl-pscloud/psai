@@ -305,7 +305,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
             # Logging
             if self.verbose >= 2:
-                print(f"Epoch {epoch+1}/{self.max_epochs} - Train Loss: {train_loss:.5f} - Val Loss: {val_loss:.5f} - Val Accuracy: {val_acc:.5f} - Val AUC-ROC: {val_auc:.5f} - Val F1: {val_f1:.5f}")
+                print(f"Epoch {epoch+1}/{self.max_epochs} - Loss(train: {train_loss:.5f} val: {val_loss:.5f}) - Val(acc: {val_acc:.5f} roc-auc: {val_auc:.5f} f1: {val_f1:.5f})")
 
             # Early stopping
             if val_loss < best_val_loss:
