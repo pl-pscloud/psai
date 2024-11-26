@@ -171,6 +171,9 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             X = X.values
         if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
             y = y.values
+
+        self.classes_ = np.unique(y)
+        #y = self._encode_labels(y)
             
         # Separate categorical and numerical features
         if self.embedding_info:
@@ -453,4 +456,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
         # Show the combined plots
         plt.show()
+
+    def _encode_labels(self, y):
+        self.label_mapping_ = {label: idx for idx, label in enumerate(self.classes_)}
+        return np.array([self.label_mapping_[label] for label in y])
     
