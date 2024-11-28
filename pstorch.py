@@ -142,6 +142,12 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             return optim.RMSprop(self.model.parameters(), lr=self.learning_rate)
         elif self.optimizer_name == 'sgd':
             return optim.SGD(self.model.parameters(), lr=self.learning_rate, momentum=0.9)
+        elif self.optimizer_name == 'nadam':
+            return optim.NAdam(self.model.parameters(), lr=self.learning_rate)
+        elif self.optimizer_name == 'adamax':
+            return optim.Adamax(self.model.parameters(), lr=self.learning_rate)
+        elif self.optimizer_name == 'adamw':
+            return optim.AdamW(self.model.parameters(), lr=self.learning_rate)
         else:
             raise ValueError(f"Unsupported optimizer type: {self.optimizer_name}")
         
