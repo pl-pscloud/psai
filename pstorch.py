@@ -761,8 +761,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             # Compute metrics
             val_mse = mean_squared_error(all_labels, all_outputs)
             val_mae = mean_absolute_error(all_labels, all_outputs)
-            val_rmsle = root_mean_squared_log_error(all_labels, all_outputs)
             val_r2 = r2_score(all_labels, all_outputs)
+
+            all_outputs_n = np.maximum(all_outputs, 0)
+            val_rmsle = root_mean_squared_log_error(all_labels, all_outputs_n)
 
             # Scheduler step
             scheduler.step(val_loss)
