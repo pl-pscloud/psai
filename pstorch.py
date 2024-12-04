@@ -14,6 +14,40 @@ import matplotlib.pyplot as plt
 
 warnings.filterwarnings('ignore')
 
+class RMSLELoss(nn.Module):
+    def __init__(self, eps=1e-6):
+        """
+        Initializes the RMSLE loss function.
+        
+        Args:
+            eps (float): A small value to ensure numerical stability.
+        """
+        super(RMSLELoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, y_pred, y_true):
+        """
+        Computes the RMSLE loss.
+        
+        Args:
+            y_pred (torch.Tensor): Predicted values.
+            y_true (torch.Tensor): True values.
+        
+        Returns:
+            torch.Tensor: Computed RMSLE loss.
+        """
+        # Ensure predictions are non-negative
+        y_pred = torch.clamp(y_pred, min=0)
+        y_true = torch.clamp(y_true, min=0)
+
+        # Compute the logarithm of (y + 1)
+        log_pred = torch.log(y_pred + 1 + self.eps)
+        log_true = torch.log(y_true + 1 + self.eps)
+
+        # Compute the squared differences
+        loss = torch.sqrt(torch.mean((log_pred - log_true) ** 2))
+        return loss
+
 #pytorch classifier
 class PyTorchClassifier(BaseEstimator, ClassifierMixin):
     def __init__(
@@ -642,6 +676,8 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             return nn.L1Loss()
         elif self.loss == 'huber':
             return nn.SmoothL1Loss()
+        elif self.loss == 'rmsle':
+            return RMSLELoss()
         else:
             raise ValueError(f"Unsupported loss function: {self.loss}")
 
