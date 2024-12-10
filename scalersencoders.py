@@ -7,6 +7,18 @@ from sklearn.decomposition import PCA, KernelPCA, TruncatedSVD
 from category_encoders import TargetEncoder
 import numpy as np
 
+# Define the identity function for feature names
+def identity_feature_names_out(feature_names_in):
+    return feature_names_in
+
+# Create the transformer
+Logtransformer = FunctionTransformer(
+    func=np.log1p,
+    inverse_func=None,
+    validate=True,
+    feature_names_out=identity_feature_names_out
+)
+
 #imputers, encoders etc
 dim_config = {
     0: None,
@@ -33,6 +45,10 @@ numerical_scaler_config = {
     1: StandardScaler(),
     2: MinMaxScaler(feature_range=(0, 1)),
     3: RobustScaler(),
+    4: QuantileTransformer(output_distribution='normal'),
+    5: PowerTransformer(method='yeo-johnson', standardize=True),
+    6: PowerTransformer(method='box-cox', standardize=True),
+    7: Logtransformer,
 }
 
 skew_imputer_config = {
@@ -52,7 +68,7 @@ skew_scaler_config = {
     4: QuantileTransformer(output_distribution='normal'),
     5: PowerTransformer(method='yeo-johnson', standardize=True),
     6: PowerTransformer(method='box-cox', standardize=True),
-    7: FunctionTransformer(np.log1p, validate=True),
+    7: Logtransformer,
 }
 
 high_imputer_config = {
