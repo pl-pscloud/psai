@@ -21,22 +21,6 @@ dim_config = {
 
 numerical_imputer_config = {
     0: None,
-    1: SimpleImputer(strategy='mean'),
-    2: SimpleImputer(strategy='median'),
-    3: SimpleImputer(strategy='constant'),
-    4: KNNImputer(n_neighbors=10),
-    5: IterativeImputer(),
-}
-
-numerical_scaler_config = {
-    0: None,
-    1: StandardScaler(),
-    2: MinMaxScaler(feature_range=(0, 1)),
-    3: RobustScaler(),
-}
-
-skew_imputer_config = {
-    0: None,
     1: SimpleImputer(strategy='mean'), 
     2: SimpleImputer(strategy='median'),
     3: SimpleImputer(strategy='constant'), 
@@ -44,7 +28,7 @@ skew_imputer_config = {
     5: IterativeImputer(),
 }
 
-skew_scaler_config = {
+numerical_scaler_config = {
     0: None,
     1: StandardScaler(),    
     2: MinMaxScaler(feature_range=(0, 1)),
