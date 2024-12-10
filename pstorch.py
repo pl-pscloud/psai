@@ -795,7 +795,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             val_loss /= len(val_loader.dataset)
 
             # Compute metrics
-            val_mse = mean_squared_error(all_labels, all_outputs)
+            val_rmse = root_mean_squared_error(all_labels, all_outputs)
             val_mae = mean_absolute_error(all_labels, all_outputs)
             val_r2 = r2_score(all_labels, all_outputs)
 
@@ -809,7 +809,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             self.eval_info[epoch] = {
                 'train_loss': train_loss,
                 'val_loss': val_loss,
-                'val_mse': val_mse,
+                'val_rmse': val_rmse,
                 'val_mae': val_mae,
                 'val_rmsle': val_rmsle,
                 'val_r2': val_r2,
@@ -819,7 +819,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             if self.verbose >= 2:
                 print(
                     f"Epoch {epoch+1}/{self.max_epochs} - Loss(train: {train_loss:.5f} val: {val_loss:.5f}) "
-                    f"- Val(MSE: {val_mse:.5f} MAE: {val_mae:.5f} RMSLE: {val_rmsle:.5f} R2: {val_r2:.5f})"
+                    f"- Val(RMSE: {val_rmse:.5f} MAE: {val_mae:.5f} RMSLE: {val_rmsle:.5f} R2: {val_r2:.5f})"
                 )
 
             # Early stopping
@@ -920,9 +920,9 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         # Plot 2: Validation Metrics
         sns.lineplot(
             x='Epoch',
-            y='val_mse',
+            y='val_rmse',
             data=df,
-            label='Validation MSE',
+            label='Validation RMSE',
             marker='o',
             color=palette[2],
             linewidth=2,
