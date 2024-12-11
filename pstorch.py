@@ -61,6 +61,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             embedding_info=None,  
             loss='bcelogit', 
             verbose=1,
+            weight_init = 'default'
         ):
             self.learning_rate = learning_rate
             self.batch_size = batch_size
@@ -79,6 +80,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             self.embedding_info = embedding_info  # Embedding info for categorical features
             self.loss = loss
             self.eval_info = {}
+            self.weight_init = weight_init
 
     def build_model(self):
         layers = []
@@ -99,7 +101,9 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
         # Define the rest of the network
         if self.net[0][0] == 1:
-            layers.append(nn.Linear(first_layer_input_dim, self.net[0][2]))
+            l = nn.Linear(first_layer_input_dim, self.net[0][2])
+            l = self.configure_weight(l)
+            layers.append(l)
         if self.net[0][4] == 1:
             layers.append(nn.BatchNorm1d(self.net[0][2]))
         elif self.net[0][4] == 2:
@@ -125,8 +129,10 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             #add layer
             if layer[0] == 1:
                 #Dense
-                layers.append(nn.Linear(layer[1], layer[2]))
-                
+                l = nn.Linear(layer[1], layer[2])
+                l = self.configure_weight(l)
+                layers.append(l)
+
                 #add normalization
                 if layer[4] == 1:
                     layers.append(nn.BatchNorm1d(layer[2]))
@@ -181,6 +187,21 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
         embeddings = [embedding(cat_features[:, i]) for i, embedding in enumerate(self.embedding_layers)]
         return torch.cat(embeddings, dim=1)
+    
+    def configure_weight(self, layer):
+        if self.weight_init =='xavier_uniform':
+            nn.init.xavier_uniform_(layer.weight)
+        elif self.weight_init =='kaiming_uniform':
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+        elif self.weight_init =='xavier_normal':
+            nn.init.xavier_normal_(layer.weight)
+        elif self.weight_init =='kaiming_normal':
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+        nn.init.zeros_(layer.bias)
+
+        if self.verbose == 3:
+            print(f'Layer initialization: {layer} with method {self.weight_init}')
+        return layer
 
     def configure_optimizer(self):
         if self.optimizer_name == 'adam':
@@ -268,6 +289,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
         # Early stopping parameters
         best_val_loss = float('inf')
+        best_epoch = 0
         patience_counter = 0
 
         # Training loop
@@ -369,6 +391,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             # Early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_epoch = epoch
                 patience_counter = 0
                 # Save the best model
                 #torch.save(self.model.state_dict(), 'best_model.pth')
@@ -377,7 +400,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
                 patience_counter += 1
                 if patience_counter >= self.patience:
                     if self.verbose >= 1:
-                        print(f"Early stopping at epoch {epoch+1}")
+                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with val_loss = {best_val_loss:.5f}")
                     break
 
             # Optionally, you can also keep track of best metrics if needed
@@ -531,6 +554,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         net=[(1, 256, 256, 1, 0), (1, 256, 1, 0, 0)],
         embedding_info=None,
         loss='mse',
+        weight_init = 'default',
         verbose=1,
     ):
         self.learning_rate = learning_rate
@@ -550,6 +574,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         self.embedding_info = embedding_info  # Embedding info for categorical features
         self.loss = loss
         self.eval_info = {}
+        self.weight_init = weight_init
 
     def build_model(self):
         layers = []
@@ -570,7 +595,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
 
         # Define the rest of the network
         if self.net[0][0] == 1:
-            layers.append(nn.Linear(first_layer_input_dim, self.net[0][2]))
+            l = nn.Linear(first_layer_input_dim, self.net[0][2])
+            l = self.configure_weight(l)
+            layers.append(l)
+           
         if self.net[0][4] == 1:
             layers.append(nn.BatchNorm1d(self.net[0][2]))
         elif self.net[0][4] == 2:
@@ -596,7 +624,9 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             # Add layer
             if layer[0] == 1:
                 # Dense
-                layers.append(nn.Linear(layer[1], layer[2]))
+                l = nn.Linear(layer[1], layer[2])
+                l = self.configure_weight(l)
+                layers.append(l)
 
                 # Add normalization
                 if layer[4] == 1:
@@ -652,6 +682,21 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
 
         embeddings = [embedding(cat_features[:, i]) for i, embedding in enumerate(self.embedding_layers)]
         return torch.cat(embeddings, dim=1)
+
+    def configure_weight(self, layer):
+        if self.weight_init =='xavier_uniform':
+            nn.init.xavier_uniform_(layer.weight)
+        elif self.weight_init =='kaiming_uniform':
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+        elif self.weight_init =='xavier_normal':
+            nn.init.xavier_normal_(layer.weight)
+        elif self.weight_init =='kaiming_normal':
+            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+        nn.init.zeros_(layer.bias)
+
+        if self.verbose == 3:
+            print(f'Layer initialization: {layer} with method {self.weight_init}')
+        return layer
 
     def configure_optimizer(self):
         if self.optimizer_name == 'adam':
@@ -738,6 +783,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
 
         # Early stopping parameters
         best_val_loss = float('inf')
+        best_epoch = 0
         patience_counter = 0
 
         # Training loop
@@ -825,13 +871,14 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             # Early stopping
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
+                best_epoch = epoch
                 patience_counter = 0
                 self.best_model = self.model
             else:
                 patience_counter += 1
                 if patience_counter >= self.patience:
                     if self.verbose >= 1:
-                        print(f"Early stopping at epoch {epoch+1}")
+                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with val_loss = {best_val_loss:.5f}")
                     break
 
         # Load the best model
@@ -877,6 +924,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         return predictions
 
     def plot_training(self):
+      
         # Set Seaborn style
         sns.set_style("whitegrid")
 
