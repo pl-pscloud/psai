@@ -1,10 +1,10 @@
-from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler, QuantileTransformer, PowerTransformer, FunctionTransformer, LabelEncoder, OrdinalEncoder, MinMaxScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, RobustScaler, QuantileTransformer, PowerTransformer, FunctionTransformer, LabelEncoder, OrdinalEncoder, MinMaxScaler, TargetEncoder
 from sklearn.feature_extraction import FeatureHasher
 from sklearn.feature_selection import RFE
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import SimpleImputer, KNNImputer, IterativeImputer
 from sklearn.decomposition import PCA, KernelPCA, TruncatedSVD
-from category_encoders import TargetEncoder
+#from category_encoders import TargetEncoder
 import numpy as np
 
 # Define the identity function for feature names
@@ -36,8 +36,9 @@ numerical_imputer_config = {
     1: SimpleImputer(strategy='mean'),
     2: SimpleImputer(strategy='median'),
     3: SimpleImputer(strategy='constant'),
-    4: KNNImputer(n_neighbors=10),
-    5: IterativeImputer(),
+    4: KNNImputer(n_neighbors=5),
+    5: KNNImputer(n_neighbors=10),
+    6: IterativeImputer(),
 }
 
 numerical_scaler_config = {
@@ -51,57 +52,25 @@ numerical_scaler_config = {
     7: Logtransformer,
 }
 
-skew_imputer_config = {
-    0: None,
-    1: SimpleImputer(strategy='mean'), 
-    2: SimpleImputer(strategy='median'),
-    3: SimpleImputer(strategy='constant'), 
-    4: KNNImputer(n_neighbors=10), 
-    5: IterativeImputer(),
-}
-
-skew_scaler_config = {
-    0: None,
-    1: StandardScaler(),    
-    2: MinMaxScaler(feature_range=(0, 1)),
-    3: RobustScaler(),
-    4: QuantileTransformer(output_distribution='normal'),
-    5: PowerTransformer(method='yeo-johnson', standardize=True),
-    6: PowerTransformer(method='box-cox', standardize=True),
-    7: Logtransformer,
-}
-
-high_imputer_config = {
+cat_imputer_config = {
     0: None,
     1: SimpleImputer(strategy='most_frequent'),
 }
 
-low_imputer_config = {
-    0: None,
-    1: SimpleImputer(strategy='most_frequent'),
-}
-
-low_encoder_config = {
+cat_encoder_config = {
     0: None,
     1: OneHotEncoder(handle_unknown='ignore'),
-    2: TargetEncoder(smoothing=1),
-    3: TargetEncoder(smoothing=100),
-    4: FeatureHasher(n_features=10, input_type='string'),
-    5: LabelEncoder(),
-    6: OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
+    2: TargetEncoder(smooth=0.1),
+    3: TargetEncoder(smooth=0.5),
+    4: TargetEncoder(smooth=1),
+    5: TargetEncoder(smooth=10),
+    6: FeatureHasher(n_features=10, input_type='string'),
+    7: LabelEncoder(),
+    8: OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
 }
 
-high_encoder_config = {
-    0: None,
-    1: OneHotEncoder(handle_unknown='ignore'),
-    2: TargetEncoder(smoothing=1),
-    3: TargetEncoder(smoothing=100),
-    4: FeatureHasher(n_features=10, input_type='string'),
-    5: LabelEncoder(),
-    6: OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
-}
 
-low_scaler_config = {
+cat_scaler_config = {
     0: None,
     1: StandardScaler(), 
     2: RobustScaler(),
@@ -109,9 +78,3 @@ low_scaler_config = {
     4: FunctionTransformer(np.log1p, validate=True),
 }
 
-high_scaler_config = {
-    0: None,
-    1: StandardScaler(), 
-    2: RobustScaler(),
-    3: QuantileTransformer(n_quantiles=10, random_state=0),
-}
