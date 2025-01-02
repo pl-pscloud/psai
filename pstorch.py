@@ -61,7 +61,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             embedding_info=None,  
             loss='bcelogit', 
             verbose=1,
-            weight_init = 'default'
+            weight_init = 'default',
+            device = 'cpu'
         ):
             self.learning_rate = learning_rate
             self.batch_size = batch_size
@@ -69,7 +70,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             self.patience = patience
             self.model = None
             self.best_model = None
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self.device = device
             self.input_dim = None
             self.net = net
             self.is_fitted_ = False
@@ -556,6 +557,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         loss='mse',
         weight_init = 'default',
         verbose=1,
+        device = 'cpu'
     ):
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -563,7 +565,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         self.patience = patience
         self.model = None
         self.best_model = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device
         self.input_dim = None
         self.net = net
         self.is_fitted_ = False
