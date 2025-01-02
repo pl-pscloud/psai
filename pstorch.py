@@ -4,7 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.base import BaseEstimator, RegressorMixin, ClassifierMixin
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_score, roc_auc_score, f1_score, root_mean_squared_log_error, root_mean_squared_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, accuracy_score, roc_auc_score, f1_score, root_mean_squared_log_error, root_mean_squared_error, r2_score, mean_absolute_percentage_error
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -846,6 +846,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             val_rmse = root_mean_squared_error(all_labels, all_outputs)
             val_mae = mean_absolute_error(all_labels, all_outputs)
             val_r2 = r2_score(all_labels, all_outputs)
+            val_mape = mean_absolute_percentage_error(all_labels, all_outputs)
 
             all_outputs_n = np.maximum(all_outputs, 0)
             val_rmsle = root_mean_squared_log_error(all_labels, all_outputs_n)
@@ -859,6 +860,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                 'val_loss': val_loss,
                 'val_rmse': val_rmse,
                 'val_mae': val_mae,
+                'val_mape': val_mape,
                 'val_rmsle': val_rmsle,
                 'val_r2': val_r2,
             }
@@ -867,7 +869,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             if self.verbose >= 2:
                 print(
                     f"Epoch {epoch+1}/{self.max_epochs} - Loss(train: {train_loss:.5f} val: {val_loss:.5f}) "
-                    f"- Val(RMSE: {val_rmse:.5f} MAE: {val_mae:.5f} RMSLE: {val_rmsle:.5f} R2: {val_r2:.5f})"
+                    f"- Val(RMSE: {val_rmse:.5f} MAE: {val_mae:.5f} MAPE: {val_mape:.5f} RMSLE: {val_rmsle:.5f} R2: {val_r2:.5f})"
                 )
 
             # Early stopping
