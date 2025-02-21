@@ -35,7 +35,7 @@ numerical_imputer_config = {
     0: None,
     1: SimpleImputer(strategy='mean'),
     2: SimpleImputer(strategy='median'),
-    3: SimpleImputer(strategy='constant'),
+    3: SimpleImputer(strategy='constant', fill_value='-1'),
     4: KNNImputer(n_neighbors=5),
     5: KNNImputer(n_neighbors=10),
     6: IterativeImputer(),
@@ -55,6 +55,7 @@ numerical_scaler_config = {
 cat_imputer_config = {
     0: None,
     1: SimpleImputer(strategy='most_frequent'),
+    2: SimpleImputer(strategy='constant', fill_value='Unknown')
 }
 
 cat_encoder_config = {
@@ -72,9 +73,10 @@ cat_encoder_config = {
 
 cat_scaler_config = {
     0: None,
-    1: StandardScaler(), 
-    2: RobustScaler(),
-    3: QuantileTransformer(n_quantiles=10, random_state=0),
-    4: FunctionTransformer(np.log1p, validate=True),
+    1: StandardScaler(),
+    2: MinMaxScaler(feature_range=(0, 1)),
+    3: RobustScaler(),
+    4: QuantileTransformer(n_quantiles=10, random_state=0),
+    5: FunctionTransformer(np.log1p, validate=True),
 }
 
