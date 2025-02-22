@@ -222,50 +222,53 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         else:
             raise ValueError(f"Unsupported loss function: {self.loss}")
 
-    def fit(self, X, y):
+    def fit(self, X, y, eval_set = [None, None]):
         if self.verbose >= 2:
             start_time = datetime.now()
             print(f"Fitting started at {start_time.strftime('%Y-%m-%d %H:%M:%S.%f')}")
-        
+
         # Convert X and y to numpy arrays
         if isinstance(X, pd.DataFrame):
             X = X.values
         if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
             y = y.values
+        # Convert X and y to numpy arrays
+        if isinstance(eval_set[0], pd.DataFrame):
+            eval_set[0] = eval_set[0].values
+        if isinstance(eval_set[1], pd.Series) or isinstance(eval_set[1], pd.DataFrame):
+            eval_set[1] = eval_set[1].values
 
-        self.classes_ = np.unique(y)
-        #y = self._encode_labels(y)
-            
         # Separate categorical and numerical features
         if self.embedding_info:
-            cat_features = X[:, :len(self.embedding_info)]
-            num_features = X[:, len(self.embedding_info):]
+            cat_train_features = X[:, :len(self.embedding_info)]
+            num_train_features = X[:, len(self.embedding_info):]
+            cat_val_features = eval_set[0][:, :len(self.embedding_info)]
+            num_val_features = eval_set[0][:, len(self.embedding_info):]
         else:
-            cat_features = None
-            num_features = X
+            cat_train_features = None
+            num_train_features = X
+            cat_val_features = None
+            num_val_features = eval_set[0]
 
         # Set input dimension for numerical features
-        self.input_dim = num_features.shape[1] if num_features is not None else 0
+        self.input_dim = num_train_features.shape[1] if num_train_features is not None else 0
 
         # Convert to tensors
-        if cat_features is not None:
-            cat_features_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device)
-        num_features_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
-        y_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
-        
-        # Split into training and validation sets
-        if cat_features is not None:
-            cat_train, cat_val, num_train, num_val, y_train, y_val = train_test_split(
-                cat_features_tensor, num_features_tensor, y_tensor, test_size=0.2, random_state=42, shuffle=True, stratify=y
-                )
-        else:
-            num_train, num_val, y_train, y_val = train_test_split(
-                num_features_tensor, y_tensor, test_size=0.2, random_state=42, shuffle=True, stratify=y
-            )
-            cat_train, cat_val = None, None
+        if cat_train_features is not None:
+            cat_train_features_tensor = torch.tensor(cat_train_features, dtype=torch.long).to(self.device)
+        num_train_features_tensor = torch.tensor(num_train_features, dtype=torch.float32).to(self.device)
+        y_train_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
 
-        train_dataset = TensorDataset(*(t for t in [cat_train, num_train, y_train] if t is not None))
-        val_dataset = TensorDataset(*(t for t in [cat_val, num_val, y_val] if t is not None))
+        if cat_val_features is not None:
+            cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
+        num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
+        y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
+       
+        
+
+        #build datasets
+        train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
+        val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
 
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
@@ -292,7 +295,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             train_loss = 0.0
 
             for batch in train_loader:
-                if cat_features is not None:
+                if cat_train_features is not None:
                     batch_cat, batch_num, batch_y = batch
                     embedded_features = self.forward_embeddings(batch_cat)
                     inputs = torch.cat([embedded_features, batch_num], dim=1)
@@ -324,7 +327,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
 
             with torch.no_grad():
                 for batch in val_loader:
-                    if cat_features is not None:
+                    if cat_val_features is not None:
                         batch_cat, batch_num, batch_y = batch
                         embedded_features = self.forward_embeddings(batch_cat)
                         inputs = torch.cat([embedded_features, batch_num], dim=1)
@@ -722,7 +725,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         else:
             raise ValueError(f"Unsupported loss function: {self.loss}")
 
-    def fit(self, X, y):
+    def fit(self, X, y, eval_set = [None, None]):
         if self.verbose >= 2:
             start_time = datetime.now()
             print(f"Fitting started at {start_time.strftime('%Y-%m-%d %H:%M:%S.%f')}")
@@ -732,40 +735,47 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             X = X.values
         if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
             y = y.values
+        # Convert X and y to numpy arrays
+        if isinstance(eval_set[0], pd.DataFrame):
+            eval_set[0] = eval_set[0].values
+        if isinstance(eval_set[1], pd.Series) or isinstance(eval_set[1], pd.DataFrame):
+            eval_set[1] = eval_set[1].values
 
         # Separate categorical and numerical features
         if self.embedding_info:
-            cat_features = X[:, :len(self.embedding_info)]
-            num_features = X[:, len(self.embedding_info):]
+            cat_train_features = X[:, :len(self.embedding_info)]
+            num_train_features = X[:, len(self.embedding_info):]
+            cat_val_features = eval_set[0][:, :len(self.embedding_info)]
+            num_val_features = eval_set[0][:, len(self.embedding_info):]
         else:
-            cat_features = None
-            num_features = X
+            cat_train_features = None
+            num_train_features = X
+            cat_val_features = None
+            num_val_features = eval_set[0]
 
         # Set input dimension for numerical features
-        self.input_dim = num_features.shape[1] if num_features is not None else 0
+        self.input_dim = num_train_features.shape[1] if num_train_features is not None else 0
 
         # Convert to tensors
-        if cat_features is not None:
-            cat_features_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device)
-        num_features_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
-        y_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
+        if cat_train_features is not None:
+            cat_train_features_tensor = torch.tensor(cat_train_features, dtype=torch.long).to(self.device)
+        num_train_features_tensor = torch.tensor(num_train_features, dtype=torch.float32).to(self.device)
+        y_train_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
 
-        # Split into training and validation sets
-        if cat_features is not None:
-            cat_train, cat_val, num_train, num_val, y_train, y_val = train_test_split(
-                cat_features_tensor, num_features_tensor, y_tensor, test_size=0.2, random_state=42, shuffle=True
-            )
-        else:
-            num_train, num_val, y_train, y_val = train_test_split(
-                num_features_tensor, y_tensor, test_size=0.2, random_state=42, shuffle=True
-            )
-            cat_train, cat_val = None, None
+        if cat_val_features is not None:
+            cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
+        num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
+        y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
+       
+        
 
-        train_dataset = TensorDataset(*(t for t in [cat_train, num_train, y_train] if t is not None))
-        val_dataset = TensorDataset(*(t for t in [cat_val, num_val, y_val] if t is not None))
+        #build datasets
+        train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
+        val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
 
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
+
 
         self.model = self.build_model().to(self.device)
 
@@ -789,7 +799,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             train_loss = 0.0
 
             for batch in train_loader:
-                if cat_features is not None:
+                if cat_train_features is not None:
                     batch_cat, batch_num, batch_y = batch
                     embedded_features = self.forward_embeddings(batch_cat)
                     inputs = torch.cat([embedded_features, batch_num], dim=1)
@@ -819,7 +829,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
 
             with torch.no_grad():
                 for batch in val_loader:
-                    if cat_features is not None:
+                    if cat_val_features is not None:
                         batch_cat, batch_num, batch_y = batch
                         embedded_features = self.forward_embeddings(batch_cat)
                         inputs = torch.cat([embedded_features, batch_num], dim=1)
