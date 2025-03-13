@@ -114,6 +114,10 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             layers.append(nn.SiLU())
         elif self.net[0][3] == 6:
             layers.append(nn.Softmax())
+        elif self.net[0][3] == 7:
+            layers.append(nn.ELU(alpha=1.0))
+        elif self.net[0][3] == 8:
+            layers.append(nn.SELU())
         elif self.net[0][3] == 0:
             pass  # No activation
 
@@ -145,6 +149,10 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
                     layers.append(nn.SiLU())
                 elif layer[3] == 6:
                     layers.append(nn.Softmax())
+                elif layer[3] == 7:
+                    layers.append(nn.ELU(alpha=1.0))
+                elif layer[3] == 9:
+                    layers.append(nn.SELU())
                 elif layer[3] == 0:
                     pass  # No activation
                     
@@ -242,13 +250,17 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         if self.embedding_info:
             cat_train_features = X[:, :len(self.embedding_info)]
             num_train_features = X[:, len(self.embedding_info):]
-            cat_val_features = eval_set[0][:, :len(self.embedding_info)]
-            num_val_features = eval_set[0][:, len(self.embedding_info):]
+            if eval_set[0] is not None:
+                cat_val_features = eval_set[0][:, :len(self.embedding_info)]
+                num_val_features = eval_set[0][:, len(self.embedding_info):]
+            else:
+                cat_val_features = None
+                num_val_features = None
         else:
             cat_train_features = None
             num_train_features = X
             cat_val_features = None
-            num_val_features = eval_set[0]
+            num_val_features = eval_set[0] if eval_set[0] is not None else None
 
         # Set input dimension for numerical features
         self.input_dim = num_train_features.shape[1] if num_train_features is not None else 0
@@ -259,32 +271,49 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         num_train_features_tensor = torch.tensor(num_train_features, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
 
-        if cat_val_features is not None:
-            cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
-        num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
-        y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
-       
-        
+        # Create validation tensors only if validation data is provided
+        if num_val_features is not None and eval_set[1] is not None:
+            if cat_val_features is not None:
+                cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
+            num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
+            y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
+        else:
+            cat_val_features_tensor = None
+            num_val_features_tensor = None
+            y_val_tensor = None
 
-        #build datasets
-        train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
-        val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
+        # Build datasets
+        if cat_train_features is not None:
+            train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
+        else:
+            train_dataset = TensorDataset(*(t for t in [num_train_features_tensor, y_train_tensor] if t is not None))
 
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
+
+        # Create validation loader only if validation data exists
+        if num_val_features_tensor is not None and y_val_tensor is not None:
+            if cat_val_features is not None:
+                val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
+            else:
+                val_dataset = TensorDataset(*(t for t in [num_val_features_tensor, y_val_tensor] if t is not None))
+            val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
+        else:
+            val_loader = None
 
         self.model = self.build_model().to(self.device)
-        
         self.criterion = self.configure_loss()
-        
         self.optimizer = self.configure_optimizer()
-        
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=10, verbose=True
+
+        # Configure scheduler only if validation is available
+        if val_loader is not None:
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode='min', factor=0.1, patience=10, verbose=True
             )
+        else:
+            scheduler = None
 
         # Early stopping parameters
-        best_val_loss = float('inf')
+        best_loss = float('inf')
         best_epoch = 0
         patience_counter = 0
 
@@ -293,6 +322,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             # Training phase
             self.model.train()
             train_loss = 0.0
+            all_train_outputs = []
+            all_train_labels = []
 
             for batch in train_loader:
                 if cat_train_features is not None:
@@ -302,111 +333,146 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
                 else:
                     batch_num, batch_y = batch
                     inputs = batch_num
-                
+
                 self.optimizer.zero_grad()
-                
+
                 # Forward pass
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, batch_y)
-                
+
+                # Store outputs and labels for metrics calculation
+                if len(outputs.shape) == 1 or outputs.shape[1] == 1:  # Binary classification
+                    probs = torch.sigmoid(outputs).squeeze()
+                    all_train_outputs.extend(probs.detach().cpu().numpy().reshape(-1))
+                else:  # Multi-class classification
+                    probs = torch.softmax(outputs, dim=1)
+                    all_train_outputs.extend(probs.detach().cpu().numpy())
+                all_train_labels.extend(batch_y.cpu().numpy().reshape(-1))
+
                 # Backward pass
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                 self.optimizer.step()
-                
+
                 train_loss += loss.item() * batch_y.size(0)
             train_loss /= len(train_loader.dataset)
+
+            # Calculate training metrics
+            all_train_outputs = np.array(all_train_outputs)
+            all_train_labels = np.array(all_train_labels)
             
+            if len(outputs.shape) == 1 or outputs.shape[1] == 1:  # Binary classification
+                train_acc = accuracy_score(all_train_labels, (all_train_outputs >= 0.5).astype(int))
+                train_auc = roc_auc_score(all_train_labels, all_train_outputs)
+                train_f1 = f1_score(all_train_labels, (all_train_outputs >= 0.5).astype(int), average='binary')
+            else:  # Multi-class classification
+                train_acc = accuracy_score(all_train_labels, np.argmax(all_train_outputs.reshape(-1, outputs.shape[1]), axis=1))
+                train_auc = roc_auc_score(all_train_labels, all_train_outputs.reshape(-1, outputs.shape[1]), multi_class='ovr')
+                train_f1 = f1_score(all_train_labels, np.argmax(all_train_outputs.reshape(-1, outputs.shape[1]), axis=1), average='macro')
 
-            # Validation phase
-            self.model.eval()
-            val_loss = 0.0
-            all_preds = []
-            all_probs = []
-            all_labels = []
-
-            with torch.no_grad():
-                for batch in val_loader:
-                    if cat_val_features is not None:
-                        batch_cat, batch_num, batch_y = batch
-                        embedded_features = self.forward_embeddings(batch_cat)
-                        inputs = torch.cat([embedded_features, batch_num], dim=1)
-                    else:
-                        batch_num, batch_y = batch
-                        inputs = batch_num
-                    
-                    outputs = self.model(inputs)  # Assuming outputs are raw logits
-                    loss = self.criterion(outputs, batch_y)
-                    val_loss += loss.item() * batch_y.size(0)
-                    
-                    # If it's a binary classification
-                    if outputs.shape[1] == 1:
-                        probs = torch.sigmoid(outputs).squeeze()
-                        preds = (probs >= 0.5).long()
-                        all_probs.extend(probs.cpu().numpy())
-                    else:
-                        # Multi-class classification
-                        probs = torch.softmax(outputs, dim=1)
-                        preds = torch.argmax(probs, dim=1)
-                        all_probs.extend(probs.cpu().numpy())
-                    
-                    all_preds.extend(preds.cpu().numpy())
-                    all_labels.extend(batch_y.cpu().numpy())
-
-            val_loss /= len(val_loader.dataset)
-
-            # Calculate Accuracy
-            val_acc = accuracy_score(all_labels, all_preds)
-
-            # Calculate AUC-ROC
-            # Handle binary and multi-class cases
-            if outputs.shape[1] == 1:
-                # Binary classification
-                val_auc = roc_auc_score(all_labels, all_probs)
-                val_f1 = f1_score(all_labels, all_preds, average='binary')
-            else:
-                # Multi-class classification
-                val_auc = roc_auc_score(all_labels, all_probs, multi_class='ovr')
-                val_f1 = f1_score(all_labels, all_preds, average='macro')
-
-            # Scheduler step
-            scheduler.step(val_loss)
-
+            # Store training metrics
             self.eval_info[epoch] = {
-                'train_loss': train_loss, 
-                'val_loss': val_loss, 
-                'val_acc': val_acc, 
-                'val_auc': val_auc, 
-                'val_f1': val_f1
+                'train_loss': train_loss,
+                'train_acc': train_acc,
+                'train_auc': train_auc,
+                'train_f1': train_f1
             }
+            
+            # Validation phase if validation data is available
+            if val_loader is not None:
+                self.model.eval()
+                val_loss = 0.0
+                all_outputs = []
+                all_labels = []
+
+                with torch.no_grad():
+                    for batch in val_loader:
+                        if cat_val_features is not None:
+                            batch_cat, batch_num, batch_y = batch
+                            embedded_features = self.forward_embeddings(batch_cat)
+                            inputs = torch.cat([embedded_features, batch_num], dim=1)
+                        else:
+                            batch_num, batch_y = batch
+                            inputs = batch_num
+
+                        outputs = self.model(inputs)
+                        loss = self.criterion(outputs, batch_y)
+                        val_loss += loss.item() * batch_y.size(0)
+
+                        # Store outputs and labels for metrics calculation
+                        if len(outputs.shape) == 1 or outputs.shape[1] == 1:  # Binary classification
+                            probs = torch.sigmoid(outputs).squeeze()
+                            all_outputs.extend(probs.cpu().numpy().reshape(-1))
+                        else:  # Multi-class classification
+                            probs = torch.softmax(outputs, dim=1)
+                            all_outputs.extend(probs.cpu().numpy())
+                        all_labels.extend(batch_y.cpu().numpy().reshape(-1))
+
+                val_loss /= len(val_loader.dataset)
+
+                # Calculate validation metrics
+                all_outputs = np.array(all_outputs)
+                all_labels = np.array(all_labels)
+                
+                if len(outputs.shape) == 1 or outputs.shape[1] == 1:  # Binary classification
+                    val_acc = accuracy_score(all_labels, (all_outputs >= 0.5).astype(int))
+                    val_auc = roc_auc_score(all_labels, all_outputs)
+                    val_f1 = f1_score(all_labels, (all_outputs >= 0.5).astype(int), average='binary')
+                else:  # Multi-class classification
+                    val_acc = accuracy_score(all_labels, np.argmax(all_outputs.reshape(-1, outputs.shape[1]), axis=1))
+                    val_auc = roc_auc_score(all_labels, all_outputs.reshape(-1, outputs.shape[1]), multi_class='ovr')
+                    val_f1 = f1_score(all_labels, np.argmax(all_outputs.reshape(-1, outputs.shape[1]), axis=1), average='macro')
+
+                # Update evaluation info with validation metrics
+                self.eval_info[epoch].update({
+                    'val_loss': val_loss,
+                    'val_acc': val_acc,
+                    'val_auc': val_auc,
+                    'val_f1': val_f1
+                })
+
+                # Scheduler step
+                if scheduler is not None:
+                    scheduler.step(val_loss)
+
+                # Early stopping check using validation loss
+                current_loss = val_loss
+            else:
+                # If no validation set, use training loss for early stopping
+                current_loss = train_loss
 
             # Logging
             if self.verbose >= 2:
-                print(f"Epoch {epoch+1}/{self.max_epochs} - Loss(train: {train_loss:.5f} val: {val_loss:.5f}) - Val(acc: {val_acc:.5f} roc-auc: {val_auc:.5f} f1: {val_f1:.5f})")
+                log_msg = (f"Epoch {epoch+1}/{self.max_epochs} - "
+                          f"Train Loss: {train_loss:.5f} - "
+                          f"Train Acc: {train_acc:.5f} - "
+                          f"Train AUC: {train_auc:.5f} - "
+                          f"Train F1: {train_f1:.5f}")
+                if val_loader is not None:
+                    log_msg += (f" - Val Loss: {val_loss:.5f} - "
+                              f"Val Acc: {val_acc:.5f} - "
+                              f"Val AUC: {val_auc:.5f} - "
+                              f"Val F1: {val_f1:.5f}")
+                print(log_msg)
 
             # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if current_loss < best_loss:
+                best_loss = current_loss
                 best_epoch = epoch
                 patience_counter = 0
-                # Save the best model
-                #torch.save(self.model.state_dict(), 'best_model.pth')
                 self.best_model = self.model
             else:
                 patience_counter += 1
                 if patience_counter >= self.patience:
                     if self.verbose >= 1:
-                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with val_loss = {best_val_loss:.5f}")
+                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with {'val' if val_loader else 'train'}_loss = {best_loss:.5f}")
                     break
-
-            # Optionally, you can also keep track of best metrics if needed
 
         # Load the best model
         self.model = self.best_model
         self.best_model = None
         self.model.eval()
         self.is_fitted_ = True
-
 
         if self.verbose >= 2:
             end_time = datetime.now()
@@ -498,11 +564,12 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             label='Training Loss', marker='o',
             color=palette[2], linewidth=2, ax=axes[0]
         )
-        sns.lineplot(
-            x='Epoch', y='val_loss', data=df,
-            label='Validation Loss', marker='s',
-            color=palette[3], linewidth=2, ax=axes[0]
-        )
+        if 'val_loss' in df.columns:
+            sns.lineplot(
+                x='Epoch', y='val_loss', data=df,
+                label='Validation Loss', marker='s',
+                color=palette[3], linewidth=2, ax=axes[0]
+            )
         axes[0].set_title('Training and Validation Loss Over Epochs', fontsize=14, fontweight='bold')
         axes[0].set_xlabel('Epoch', fontsize=12)
         axes[0].set_ylabel('Loss', fontsize=12)
@@ -511,16 +578,18 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         axes[0].grid(True)
 
         # Plot 2: Validation Accuracy and AUC-ROC
-        sns.lineplot(
-            x='Epoch', y='val_acc', data=df,
-            label='Validation Accuracy', marker='o',
-            color=palette[2], linewidth=2, ax=axes[1]
-        )
-        sns.lineplot(
-            x='Epoch', y='val_auc', data=df,
-            label='Validation AUC-ROC', marker='s',
-            color=palette[3], linewidth=2, ax=axes[1]
-        )
+        if 'val_acc' in df.columns:
+            sns.lineplot(
+                x='Epoch', y='val_acc', data=df,
+                label='Validation Accuracy', marker='o',
+                color=palette[2], linewidth=2, ax=axes[1]
+            )
+        if 'val_auc' in df.columns:
+            sns.lineplot(
+                x='Epoch', y='val_auc', data=df,
+                label='Validation AUC-ROC', marker='s',
+                color=palette[3], linewidth=2, ax=axes[1]
+            )
         axes[1].set_title('Validation Accuracy and AUC-ROC Over Epochs', fontsize=14, fontweight='bold')
         axes[1].set_xlabel('Epoch', fontsize=12)
         axes[1].set_ylabel('Metric Value', fontsize=12)
@@ -613,6 +682,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             layers.append(nn.SiLU())
         elif self.net[0][3] == 6:
             layers.append(nn.Softmax())
+        elif self.net[0][3] == 7:
+            layers.append(nn.ELU(alpha=1.0))
+        elif self.net[0][3] == 8: 
+            layers.append(nn.SELU())
         elif self.net[0][3] == 0:
             pass  # No activation
 
@@ -644,6 +717,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                     layers.append(nn.SiLU())
                 elif layer[3] == 6:
                     layers.append(nn.Softmax())
+                elif layer[3] == 7:
+                    layers.append(nn.ELU(alpha=1.0))
+                elif layer[3] == 8:
+                    layers.append(nn.SELU())
                 elif layer[3] == 0:
                     pass  # No activation
 
@@ -735,23 +812,22 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             X = X.values
         if isinstance(y, pd.Series) or isinstance(y, pd.DataFrame):
             y = y.values
-        # Convert X and y to numpy arrays
-        if isinstance(eval_set[0], pd.DataFrame):
-            eval_set[0] = eval_set[0].values
-        if isinstance(eval_set[1], pd.Series) or isinstance(eval_set[1], pd.DataFrame):
-            eval_set[1] = eval_set[1].values
 
         # Separate categorical and numerical features
         if self.embedding_info:
             cat_train_features = X[:, :len(self.embedding_info)]
             num_train_features = X[:, len(self.embedding_info):]
-            cat_val_features = eval_set[0][:, :len(self.embedding_info)]
-            num_val_features = eval_set[0][:, len(self.embedding_info):]
+            if eval_set[0] is not None:
+                cat_val_features = eval_set[0][:, :len(self.embedding_info)]
+                num_val_features = eval_set[0][:, len(self.embedding_info):]
+            else:
+                cat_val_features = None
+                num_val_features = None
         else:
             cat_train_features = None
             num_train_features = X
             cat_val_features = None
-            num_val_features = eval_set[0]
+            num_val_features = eval_set[0] if eval_set[0] is not None else None
 
         # Set input dimension for numerical features
         self.input_dim = num_train_features.shape[1] if num_train_features is not None else 0
@@ -762,33 +838,49 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         num_train_features_tensor = torch.tensor(num_train_features, dtype=torch.float32).to(self.device)
         y_train_tensor = torch.tensor(y, dtype=torch.float32).view(-1, 1).to(self.device)
 
-        if cat_val_features is not None:
-            cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
-        num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
-        y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
-       
-        
+        # Create validation tensors only if validation data is provided
+        if num_val_features is not None and eval_set[1] is not None:
+            if cat_val_features is not None:
+                cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
+            num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
+            y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
+        else:
+            cat_val_features_tensor = None
+            num_val_features_tensor = None
+            y_val_tensor = None
 
-        #build datasets
-        train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
-        val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
+        # Build datasets
+        if cat_train_features is not None:
+            train_dataset = TensorDataset(*(t for t in [cat_train_features_tensor, num_train_features_tensor, y_train_tensor] if t is not None))
+        else:
+            train_dataset = TensorDataset(*(t for t in [num_train_features_tensor, y_train_tensor] if t is not None))
 
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
 
+        # Create validation loader only if validation data exists
+        if num_val_features_tensor is not None and y_val_tensor is not None:
+            if cat_val_features is not None:
+                val_dataset = TensorDataset(*(t for t in [cat_val_features_tensor, num_val_features_tensor, y_val_tensor] if t is not None))
+            else:
+                val_dataset = TensorDataset(*(t for t in [num_val_features_tensor, y_val_tensor] if t is not None))
+            val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
+        else:
+            val_loader = None
 
         self.model = self.build_model().to(self.device)
-
         self.criterion = self.configure_loss()
-
         self.optimizer = self.configure_optimizer()
 
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=10, verbose=True
-        )
+        # Configure scheduler only if validation is available
+        if val_loader is not None:
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optimizer, mode='min', factor=0.1, patience=10, verbose=True
+            )
+        else:
+            scheduler = None
 
         # Early stopping parameters
-        best_val_loss = float('inf')
+        best_loss = float('inf')
         best_epoch = 0
         patience_counter = 0
 
@@ -797,6 +889,8 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             # Training phase
             self.model.train()
             train_loss = 0.0
+            all_train_outputs = []
+            all_train_labels = []
 
             for batch in train_loader:
                 if cat_train_features is not None:
@@ -813,6 +907,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                 outputs = self.model(inputs)
                 loss = self.criterion(outputs, batch_y)
 
+                # Store outputs and labels for metrics calculation
+                all_train_outputs.extend(outputs.detach().cpu().numpy().flatten())
+                all_train_labels.extend(batch_y.cpu().numpy().flatten())
+
                 # Backward pass
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
@@ -821,64 +919,101 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                 train_loss += loss.item() * batch_y.size(0)
             train_loss /= len(train_loader.dataset)
 
-            # Validation phase
-            self.model.eval()
-            val_loss = 0.0
-            all_outputs = []
-            all_labels = []
+            # Calculate training metrics
+            train_rmse = root_mean_squared_error(all_train_labels, all_train_outputs)
+            train_mae = mean_absolute_error(all_train_labels, all_train_outputs)
+            train_r2 = r2_score(all_train_labels, all_train_outputs)
+            train_mape = mean_absolute_percentage_error(all_train_labels, all_train_outputs)
 
-            with torch.no_grad():
-                for batch in val_loader:
-                    if cat_val_features is not None:
-                        batch_cat, batch_num, batch_y = batch
-                        embedded_features = self.forward_embeddings(batch_cat)
-                        inputs = torch.cat([embedded_features, batch_num], dim=1)
-                    else:
-                        batch_num, batch_y = batch
-                        inputs = batch_num
+            all_train_outputs_n = np.maximum(all_train_outputs, 0)
+            train_rmsle = root_mean_squared_log_error(all_train_labels, all_train_outputs_n)
 
-                    outputs = self.model(inputs)
-                    loss = self.criterion(outputs, batch_y)
-                    val_loss += loss.item() * batch_y.size(0)
-
-                    all_outputs.extend(outputs.cpu().numpy().flatten())
-                    all_labels.extend(batch_y.cpu().numpy().flatten())
-
-            val_loss /= len(val_loader.dataset)
-
-            # Compute metrics
-            val_rmse = root_mean_squared_error(all_labels, all_outputs)
-            val_mae = mean_absolute_error(all_labels, all_outputs)
-            val_r2 = r2_score(all_labels, all_outputs)
-            val_mape = mean_absolute_percentage_error(all_labels, all_outputs)
-
-            all_outputs_n = np.maximum(all_outputs, 0)
-            val_rmsle = root_mean_squared_log_error(all_labels, all_outputs_n)
-
-            # Scheduler step
-            scheduler.step(val_loss)
-
-            # Store metrics
+            # Store training metrics
             self.eval_info[epoch] = {
                 'train_loss': train_loss,
-                'val_loss': val_loss,
-                'val_rmse': val_rmse,
-                'val_mae': val_mae,
-                'val_mape': val_mape,
-                'val_rmsle': val_rmsle,
-                'val_r2': val_r2,
+                'train_rmse': train_rmse,
+                'train_mae': train_mae,
+                'train_mape': train_mape,
+                'train_rmsle': train_rmsle,
+                'train_r2': train_r2
             }
+            
+            # Validation phase if validation data is available
+            if val_loader is not None:
+                self.model.eval()
+                val_loss = 0.0
+                all_outputs = []
+                all_labels = []
+
+                with torch.no_grad():
+                    for batch in val_loader:
+                        if cat_val_features is not None:
+                            batch_cat, batch_num, batch_y = batch
+                            embedded_features = self.forward_embeddings(batch_cat)
+                            inputs = torch.cat([embedded_features, batch_num], dim=1)
+                        else:
+                            batch_num, batch_y = batch
+                            inputs = batch_num
+
+                        outputs = self.model(inputs)
+                        loss = self.criterion(outputs, batch_y)
+                        val_loss += loss.item() * batch_y.size(0)
+
+                        all_outputs.extend(outputs.cpu().numpy().flatten())
+                        all_labels.extend(batch_y.cpu().numpy().flatten())
+
+                val_loss /= len(val_loader.dataset)
+
+                # Compute validation metrics
+                val_rmse = root_mean_squared_error(all_labels, all_outputs)
+                val_mae = mean_absolute_error(all_labels, all_outputs)
+                val_r2 = r2_score(all_labels, all_outputs)
+                val_mape = mean_absolute_percentage_error(all_labels, all_outputs)
+
+                all_outputs_n = np.maximum(all_outputs, 0)
+                val_rmsle = root_mean_squared_log_error(all_labels, all_outputs_n)
+
+                # Update evaluation info with validation metrics
+                self.eval_info[epoch].update({
+                    'val_loss': val_loss,
+                    'val_rmse': val_rmse,
+                    'val_mae': val_mae,
+                    'val_mape': val_mape,
+                    'val_rmsle': val_rmsle,
+                    'val_r2': val_r2,
+                })
+
+                # Scheduler step
+                if scheduler is not None:
+                    scheduler.step(val_loss)
+
+                # Early stopping check using validation loss
+                current_loss = val_loss
+            else:
+                # If no validation set, use training loss for early stopping
+                current_loss = train_loss
 
             # Logging
             if self.verbose >= 2:
-                print(
-                    f"Epoch {epoch+1}/{self.max_epochs} - Loss(train: {train_loss:.5f} val: {val_loss:.5f}) "
-                    f"- Val(RMSE: {val_rmse:.5f} MAE: {val_mae:.5f} MAPE: {val_mape:.5f} RMSLE: {val_rmsle:.5f} R2: {val_r2:.5f})"
-                )
+                log_msg = (f"Epoch {epoch+1}/{self.max_epochs} - "
+                          f"Train Loss: {train_loss:.5f} - "
+                          f"Train RMSE: {train_rmse:.5f} - "
+                          f"Train MAE: {train_mae:.5f} - "
+                          f"Train MAPE: {train_mape:.5f} - "
+                          f"Train RMSLE: {train_rmsle:.5f} - "
+                          f"Train R2: {train_r2:.5f}")
+                if val_loader is not None:
+                    log_msg += (f" - Val Loss: {val_loss:.5f} - "
+                              f"Val RMSE: {val_rmse:.5f} - "
+                              f"Val MAE: {val_mae:.5f} - "
+                              f"Val MAPE: {val_mape:.5f} - "
+                              f"Val RMSLE: {val_rmsle:.5f} - "
+                              f"Val R2: {val_r2:.5f}")
+                print(log_msg)
 
             # Early stopping
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
+            if current_loss < best_loss:
+                best_loss = current_loss
                 best_epoch = epoch
                 patience_counter = 0
                 self.best_model = self.model
@@ -886,7 +1021,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                 patience_counter += 1
                 if patience_counter >= self.patience:
                     if self.verbose >= 1:
-                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with val_loss = {best_val_loss:.5f}")
+                        print(f"Early stopping at epoch {epoch} -> best epoch {best_epoch} with {'val' if val_loader else 'train'}_loss = {best_loss:.5f}")
                     break
 
         # Load the best model
@@ -902,6 +1037,8 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
                 f"Fitting ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S.%f')} "
                 f"and took: {execution_time.total_seconds()} seconds"
             )
+
+        return self
 
     def predict(self, X):
         # Convert X to numpy array if needed
@@ -957,16 +1094,17 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             linewidth=2,
             ax=axes[0],
         )
-        sns.lineplot(
-            x='Epoch',
-            y='val_loss',
-            data=df,
-            label='Validation Loss',
-            marker='s',
-            color=palette[3],
-            linewidth=2,
-            ax=axes[0],
-        )
+        if 'val_loss' in df.columns:
+            sns.lineplot(
+                x='Epoch',
+                y='val_loss',
+                data=df,
+                label='Validation Loss',
+                marker='s',
+                color=palette[3],
+                linewidth=2,
+                ax=axes[0],
+            )
         axes[0].set_title('Training and Validation Loss Over Epochs', fontsize=14, fontweight='bold')
         axes[0].set_xlabel('Epoch', fontsize=12)
         axes[0].set_ylabel('Loss', fontsize=12)
@@ -974,36 +1112,39 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         axes[0].grid(True)
 
         # Plot 2: Validation Metrics
-        sns.lineplot(
-            x='Epoch',
-            y='val_rmse',
-            data=df,
-            label='Validation RMSE',
-            marker='o',
-            color=palette[2],
-            linewidth=2,
-            ax=axes[1],
-        )
-        sns.lineplot(
-            x='Epoch',
-            y='val_mae',
-            data=df,
-            label='Validation MAE',
-            marker='s',
-            color=palette[3],
-            linewidth=2,
-            ax=axes[1],
-        )
-        sns.lineplot(
-            x='Epoch',
-            y='val_r2',
-            data=df,
-            label='Validation R²',
-            marker='^',
-            color=palette[4],
-            linewidth=2,
-            ax=axes[1],
-        )
+        if 'val_rmse' in df.columns:
+            sns.lineplot(
+                x='Epoch',
+                y='val_rmse',
+                data=df,
+                label='Validation RMSE',
+                marker='o',
+                color=palette[2],
+                linewidth=2,
+                ax=axes[1],
+            )
+        if 'val_mae' in df.columns:
+            sns.lineplot(
+                x='Epoch',
+                y='val_mae',
+                data=df,
+                label='Validation MAE',
+                marker='s',
+                color=palette[3],
+                linewidth=2,
+                ax=axes[1],
+            )
+        if 'val_r2' in df.columns:
+            sns.lineplot(
+                x='Epoch',
+                y='val_r2',
+                data=df,
+                label='Validation R²',
+                marker='^',
+                color=palette[4],
+                linewidth=2,
+                ax=axes[1],
+            )
         axes[1].set_title('Validation Metrics Over Epochs', fontsize=14, fontweight='bold')
         axes[1].set_xlabel('Epoch', fontsize=12)
         axes[1].set_ylabel('Metric Value', fontsize=12)
