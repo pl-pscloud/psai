@@ -506,9 +506,9 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             predictions = self.model(inputs).detach().cpu().numpy().flatten()
         
         if self.loss == 'bcelogit':
-            return 1 / (1 + np.exp(-predictions))
-
-        return predictions
+            predictions = 1 / (1 + np.exp(-predictions))
+        
+        return np.column_stack([1 - predictions, predictions])
     
     def predict(self, X):
         # Convert X to numpy array if needed

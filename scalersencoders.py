@@ -4,6 +4,9 @@ from sklearn.feature_selection import RFE
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import SimpleImputer, KNNImputer, IterativeImputer
 from sklearn.decomposition import PCA, KernelPCA, TruncatedSVD
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import FunctionTransformer
 #from category_encoders import TargetEncoder
 import numpy as np
 
@@ -80,3 +83,111 @@ cat_scaler_config = {
     5: FunctionTransformer(np.log1p, validate=True),
 }
 
+def create_preprocessor(config, X):
+
+    columns = categorize_features(X)
+    # Create numerical transformer with hyperparameterized SimpleImputer
+    numerical_transformer = Pipeline(steps=[
+        ('imputer', numerical_imputer_config[config['numerical']['imputer']]),
+        ('scaler', numerical_scaler_config[config['numerical']['scaler']]),
+    ])
+
+    # Create skew transformer
+    skew_transformer = Pipeline(steps=[
+        ('imputer', numerical_imputer_config[config['skewed']['imputer']]),
+        ('scaler', numerical_scaler_config[config['skewed']['scaler']]),
+    ])
+
+
+    # Create outlier transformer
+    outlier_transformer = Pipeline(steps=[
+        ('imputer', numerical_imputer_config[config['outlier']['imputer']]),
+        ('scaler', numerical_scaler_config[config['outlier']['scaler']]),
+    ])
+
+    # Create low cardinality transformer 
+    low_cardinality_transformer = Pipeline(steps=[
+        ('imputer', cat_imputer_config[config['low_cardinality']['imputer']]),
+        ('encoder', cat_encoder_config[config['low_cardinality']['encoder']]),
+        ('scaler', cat_scaler_config[config['low_cardinality']['scaler']]),
+    ])
+
+    # Create high cardinality
+    high_cardinality_transformer = Pipeline(steps=[
+        ('imputer', cat_imputer_config[config['high_cardinality']['imputer']]),
+        ('encoder', cat_encoder_config[config['high_cardinality']['encoder']]),
+        ('scaler', cat_scaler_config[config['high_cardinality']['scaler']]),
+    ])
+
+    # Combine all pipelines into a ColumnTransformer
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ('high', high_cardinality_transformer, columns['high_cols']),  # High-cardinality categorical columns
+            ('low', low_cardinality_transformer, columns['low_cols']),  # Low-cardinality categorical columns
+            ('num', numerical_transformer, columns['nskewed_cols']),  # Numerical columns
+            ('skew', skew_transformer, columns['skewed_cols']),  # Numerical skew columns
+            ('outlier', outlier_transformer, columns['outlier_cols']),  # Numerical skew columns 
+        ]
+    )
+
+    return preprocessor, columns
+
+def categorize_features(X):
+    # Separate categorical and numerical features
+    cat_cols = X.select_dtypes(include=['object','category']).columns
+    num_cols = X.select_dtypes(include=['int32', 'int64','float64']).columns
+
+    # Determine cardinality for categorical features
+    cardinality = X[cat_cols].nunique()
+    threshold = 10
+    high_cols = cardinality[cardinality > threshold].index.tolist()
+    low_cols = cardinality[cardinality <= threshold].index.tolist()
+
+    # Determine skewness for numerical features
+    skew_threshold = 0.5
+    skewness = X[num_cols].apply(lambda x: x.skew())
+    skewed_cols = skewness[skewness.abs() > skew_threshold].index.tolist()  # Threshold for skewness
+    nskewed_cols = skewness[skewness.abs() <= skew_threshold].index.tolist()
+
+    outlier_cols = []
+    for col in num_cols:
+        Q1 = np.percentile(X[col], 25)
+        Q3 = np.percentile(X[col], 75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        outliers = (X[col] < lower_bound) | (X[col] > upper_bound)
+        outlier_ratio = outliers.mean()
+        # Lege ein Threshold fest, z.B. wenn mehr als 5% Ausreißer
+        if outlier_ratio > 0.05:
+            outlier_cols.append(col)
+
+    skewed_cols = [col for col in skewed_cols if col not in outlier_cols]
+    nskewed_cols = [col for col in nskewed_cols if col not in outlier_cols]
+
+    # Prepare embedding_info for high cardinality columns
+    embedding_info = {}
+
+    # Set a rule for choosing embedding dimensions based on cardinality
+    for col in high_cols:
+        number_of_categories = X[col].nunique()  # Calculate the number of unique categories
+        embedding_dim = min(2 + (number_of_categories // 8), 50)  # Decide on the embedding dimension
+        embedding_info[col] = (number_of_categories, embedding_dim)
+
+    print(f'Num cols: {nskewed_cols}')
+    print(f'Num skew cols: {skewed_cols}')
+    print(f'Outliers cols: {outlier_cols}')
+    print(f'Cat cols: {low_cols}')
+    print(f'Cat high cardinality cols: {high_cols}')
+    print(f'Embeddings: {embedding_info}')
+
+    return {
+        'cat_cols': cat_cols,
+        'num_cols': num_cols,
+        'low_cols': low_cols,
+        'high_cols': high_cols,
+        'skewed_cols': skewed_cols,
+        'nskewed_cols': nskewed_cols,
+        'outlier_cols': outlier_cols,
+        'embedding_info': embedding_info
+    }
