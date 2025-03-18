@@ -74,6 +74,7 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             self.loss = loss
             self.eval_info = {}
             self.weight_init = weight_init
+            self._classes = None  # Initialize classes attribute
 
     def build_model(self):
         layers = []
@@ -474,10 +475,20 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
         self.model.eval()
         self.is_fitted_ = True
 
+        # Store unique classes for scikit-learn compatibility
+        self._classes = np.unique(y)
+
         if self.verbose >= 2:
             end_time = datetime.now()
             execution_time = end_time - start_time
             print(f"Fitting ended at: {end_time.strftime('%Y-%m-%d %H:%M:%S.%f')} and took: {execution_time.total_seconds()} seconds")
+
+    @property
+    def classes_(self):
+        """Return the classes labels for scikit-learn compatibility."""
+        if self._classes is None:
+            raise AttributeError("Model has not been fitted yet, call 'fit' before using this estimator.")
+        return self._classes
 
     def predict_proba(self, X):
         # Convert X to numpy array if needed
