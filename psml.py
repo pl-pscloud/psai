@@ -41,15 +41,28 @@ best_classification_model = {
     'pytorch': None
 }
 
+best_regression_cv = {
+    'lightgbm': 1e10,
+    'xgboost': 1e10,
+    'catboost': 1e10,
+    'pytorch': 1e10
+}
+best_regression_model = {
+    'lightgbm': None,
+    'xgboost': None,
+    'catboost': None,
+    'pytorch': None
+}
+
 class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
     """
-    def __init__(self, config, X, y, test_size=0.2, task_type='classification', cv = 5, verbose = 1):
+    def __init__(self, config, X, y):
         self.models = {}
         self.config = config
 
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=self.config['dataset']['test_size'], random_state=self.config['dataset']['random_state'])
 
         self.X_train = X_train
         self.y_train = y_train
@@ -57,9 +70,7 @@ class psML:
         self.y_test = y_test
         self.columns = {}
         self.preprocessor = None
-        self.task_type = task_type
-        self.cv = cv
-        self.verbose = verbose
+        
         
     def save_model(self, filepath):
         """
@@ -104,10 +115,11 @@ class psML:
         return model
 
     def optimize_all_models(self):
+
         self.create_preprocessor()
 
-        if self.task_type == 'classification':
-        
+        if self.config['dataset']['task_type'] == 'classification':
+    
             if self.config['models']['lightgbm']['enabled']:
                 self.optimize_model('lightgbm')
 
@@ -119,6 +131,21 @@ class psML:
             
             if self.config['models']['pytorch']['enabled']:
                 self.optimize_model('pytorch')
+
+        if self.config['dataset']['task_type'] == 'regression':
+        
+            if self.config['models']['lightgbm']['enabled']:
+                self.optimize_model('lightgbm')
+
+            if self.config['models']['xgboost']['enabled']:
+                self.optimize_model('xgboost')
+
+            if self.config['models']['catboost']['enabled']:
+                self.optimize_model('catboost')
+        
+            if self.config['models']['pytorch']['enabled']:
+                self.optimize_model('pytorch')
+
         
     def create_preprocessor(self):
         preprocessor, columns = create_preprocessor(self.config['preprocessor'], self.X_train)
@@ -126,7 +153,6 @@ class psML:
         self.columns = columns
 
     def scores(self):
-
         if self.config['models']['lightgbm']['enabled']:
             print(f'LightGBM CV Score: {self.models["lightgbm"]["cv_score"]} , Test Score: {self.models["lightgbm"]["final_model"]["score"]}')
 
@@ -145,7 +171,12 @@ class psML:
             'acc': accuracy_score,
             'f1': lambda y_true, y_pred: f1_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
             'auc': roc_auc_score,
-            'prec': lambda y_true, y_pred: precision_score(y_true, (y_pred >= 0.5).astype(int), average='binary')
+            'prec': lambda y_true, y_pred: precision_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
+            'mse': mean_squared_error,
+            'rmse': lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)),
+            'mae': mean_absolute_error,
+            'mape': mean_absolute_percentage_error,
+
         }
         
         if metric_name not in metric_mapping:
@@ -161,6 +192,9 @@ class psML:
         def objective(trial):
             global best_classification_cv
             global best_classification_model
+            global best_regression_cv
+            global best_regression_model
+
 
             if model_name == 'lightgbm':
                 params = {
@@ -178,6 +212,8 @@ class psML:
                     "learning_rate": trial.suggest_loguniform("learning_rate", 0.001, 0.2),
                     "min_split_gain": trial.suggest_loguniform("min_split_gain", 1e-8, 1.0),
                     "max_depth": trial.suggest_int("max_depth", 3, 20),
+                    "num_threads": self.config['models']['lightgbm']['params']['num_threads'],
+                    "verbose": self.config['models']['lightgbm']['params']['verbose']
                 }
 
                 if params['boosting_type'] != 'goss':
@@ -201,6 +237,8 @@ class psML:
                     "colsample_bytree": trial.suggest_float('colsample_bytree', 0.5, 1),
                     "colsample_bylevel": trial.suggest_float('colsample_bylevel', 0.5, 1),
                     "early_stopping_rounds": 100,
+                    "nthread": self.config['models']['xgboost']['params']['nthread'],
+                    "verbose": self.config['models']['xgboost']['params']['verbose']
                     
                 }
                 
@@ -221,9 +259,10 @@ class psML:
                     'feature_border_type': trial.suggest_categorical('feature_border_type', ['Median', 'Uniform', 'GreedyMinEntropy']),
                     'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
                     'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 1, 30),
-                    
                     'random_strength': trial.suggest_float('random_strength', 1e-9, 10, log=True),
                     'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise', 'Lossguide']),
+                    'thread_count': self.config['models']['catboost']['params']['thread_count'],
+                    'verbose': self.config['models']['catboost']['params']['verbose']
                 }
                 if params['bootstrap_type'] == 'Bernoulli':
                     params['subsample'] = trial.suggest_float('subsample', 0.6, 1.0)
@@ -239,31 +278,33 @@ class psML:
                     "batch_size": trial.suggest_categorical('batch_size', self.config['models']['pytorch']['params']['batch_size']),
                     "net":  trial.suggest_categorical('net', self.config['models']['pytorch']['params']['net']),
                     "weight_init": trial.suggest_categorical('weight_init', self.config['models']['pytorch']['params']['weight_init']),
-
                     "verbose": self.config['models']['pytorch']['params']['verbose'],
                     "device": 'cuda' if self.config['models']['pytorch']['params']['device'] == 'gpu' else 'cpu',
                     "max_epochs": self.config['models']['pytorch']['params']['train_max_epochs'],
                     "patience": self.config['models']['pytorch']['params']['train_patience'],
                     "loss": self.config['models']['pytorch']['params']['objective'],
                     "embedding_info": self.columns['embedding_info'],
+                    "verbose": self.config['models']['pytorch']['params']['verbose']
                 }
                 
 
-            if self.verbose > 0:
+            if self.config['dataset']['verbose'] > 0:
                 print(f'===============  {model_name} training - trail {trial.number}  =========================')
                 
             
-            split = self.cv
+            split = self.config['dataset']['cv_folds']
             scores = 0
 
-            #skf = KFold(n_splits=split, shuffle=True, random_state=42)
-            skf = StratifiedKFold(n_splits=split, shuffle=True, random_state=42)
-
+            if self.config['dataset']['task_type'] == 'classification':
+                skf = StratifiedKFold(n_splits=split, shuffle=True, random_state=self.config['dataset']['random_state'])
+            else:
+                skf = KFold(n_splits=split, shuffle=True, random_state=self.config['dataset']['random_state'])
+                
             fitted_trial_models = {}
 
             for fold, (train_index, val_index) in enumerate(skf.split(self.X_train, self.y_train), 1):
                 
-                if self.verbose > 1:
+                if self.config['dataset']['verbose'] > 1:
                     print(f'Fold {fold} ...', end="")
                 
                 X_train_fold, X_val_fold = self.X_train.iloc[train_index], self.X_train.iloc[val_index]
@@ -274,14 +315,24 @@ class psML:
                 # Transform training and validation data
                 X_val_transformed = fold_preprocessor.transform(X_val_fold.reset_index(drop=True))
 
-                if model_name == 'lightgbm':
-                    clf = LGBMClassifier(**params)
-                elif model_name == 'xgboost':
-                    clf = XGBClassifier(**params)
-                elif model_name == 'catboost':
-                    clf = CatBoostClassifier(**params)
-                elif model_name == 'pytorch':
-                    clf = PyTorchClassifier(**params)
+                if self.config['dataset']['task_type'] == 'classification':
+                    if model_name == 'lightgbm':
+                        clf = LGBMClassifier(**params)
+                    elif model_name == 'xgboost':
+                        clf = XGBClassifier(**params)
+                    elif model_name == 'catboost':
+                        clf = CatBoostClassifier(**params)
+                    elif model_name == 'pytorch':
+                        clf = PyTorchClassifier(**params)
+                else:
+                    if model_name == 'lightgbm':
+                        clf = LGBMRegressor(**params)
+                    elif model_name == 'xgboost':
+                        clf = XGBRegressor(**params)
+                    elif model_name == 'catboost':
+                        clf = CatBoostRegressor(**params)
+                    elif model_name == 'pytorch':
+                        clf = PyTorchRegressor(**params)
 
                 pipeline = Pipeline([
                             ('preprocessor', fold_preprocessor),
@@ -320,11 +371,15 @@ class psML:
                         
                     
                 except optuna.exceptions.TrialPruned:
-                    if self.verbose > 1:
+                    if self.config['dataset']['verbose'] > 1:
                         print(f"Trial {trial.number} pruned at fold {fold}.")
                     raise  # Re-raise to notify Optuna)
                 
-                y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
+                if self.config['dataset']['task_type'] == 'classification':
+                    y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
+                else:
+                    y_pred = pipeline.predict(X_val_fold.reset_index(drop=True))
+                
                 s = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(y_val_fold.reset_index(drop=True), y_pred)
 
                 df_y_pred = pd.DataFrame(y_pred)
@@ -335,7 +390,7 @@ class psML:
                 
                 scores += s
                 
-                if self.verbose > 1:
+                if self.config['dataset']['verbose'] > 1:
                     print(f" score: {s}")
 
                 # Report intermediate score
@@ -344,43 +399,55 @@ class psML:
 
                 # Prune trial if necessary
                 if trial.should_prune():
-                    if self.verbose > 1:
+                    if self.config['dataset']['verbose'] > 1:
                         print(f"Trial {trial.number} pruned after fold {fold}.")
                     raise optuna.exceptions.TrialPruned()
                 
             score = scores / split
 
-            if score > best_classification_cv[model_name]:
-                best_classification_cv[model_name] = score
-                best_classification_model[model_name] = fitted_trial_models
+            if self.config['dataset']['task_type'] == 'classification':
+                if score > best_classification_cv[model_name]:
+                    best_classification_cv[model_name] = score
+                    best_classification_model[model_name] = fitted_trial_models
+            else:
+                if score < best_regression_cv[model_name]:
+                    best_regression_cv[model_name] = score
+                    best_regression_model[model_name] = fitted_trial_models
             
-            if self.verbose > 0:
+            if self.config['dataset']['verbose'] > 0:
                 print(f"CV {self.config['models'][model_name]['optuna_metric']} Score:", score)
 
             return score
 
         # Create an Optuna study
-        study = optuna.create_study(direction='maximize', study_name=f'{model_name} Optimization', pruner=pruner, sampler=sampler)
-
+        if self.config['dataset']['task_type'] == 'classification':
+            study = optuna.create_study(direction='maximize', study_name=f'{model_name} Optimization', pruner=pruner, sampler=sampler)
+        else:
+            study = optuna.create_study(direction='minimize', study_name=f'{model_name} Optimization', pruner=pruner, sampler=sampler)
+        
         # Optimize the objective function
-        study.optimize(objective, n_trials=self.config['models'][model_name]['optuna_trials'])
+        study.optimize(objective, n_trials=self.config['models'][model_name]['optuna_trials'], n_jobs=self.config['models'][model_name]['optuna_n_jobs'])
 
         # Print study statistics
-        if self.verbose > 0:
+        if self.config['dataset']['verbose'] > 0:
             print("Study statistics:")
             print("  Number of finished trials: ", len(study.trials))
             print("  Best trial:")
         trial = study.best_trial
 
-        if self.verbose > 0:
+        if self.config['dataset']['verbose'] > 0:
             print("    Value: {:.4f}".format(trial.value))
             print("    Params: ")
             for key, value in trial.params.items():
                 print(f"      {key}: {value}")
 
-
-        self.models[model_name]['cv_score'] = best_classification_cv[model_name]
-        self.models[model_name]['cv_model'] = best_classification_model[model_name]
+        if self.config['dataset']['task_type'] == 'classification':
+            self.models[model_name]['cv_score'] = best_classification_cv[model_name]
+            self.models[model_name]['cv_model'] = best_classification_model[model_name]
+        else:
+            self.models[model_name]['cv_score'] = best_regression_cv[model_name]
+            self.models[model_name]['cv_model'] = best_regression_model[model_name]
+        
         self.models[model_name]['best_params'] = trial.params
         self.models[model_name]['study'] = study
 
@@ -402,6 +469,8 @@ class psML:
                 "learning_rate": p["learning_rate"],
                 "min_split_gain": p["min_split_gain"],
                 "max_depth": p["max_depth"],
+                "num_threads": self.config['models']['lightgbm']['params']['num_threads'],
+                "verbose": self.config['models']['lightgbm']['params']['verbose']
             }
 
             if p['boosting_type'] != 'goss':
@@ -423,8 +492,10 @@ class psML:
                 "alpha": p['alpha'],
                 "min_child_weight": p['min_child_weight'],
                 "colsample_bytree": p['colsample_bytree'],
-                "colsample_bylevel": p['colsample_bylevel']
-            }
+                "colsample_bylevel": p['colsample_bylevel'],
+                "nthread": self.config['models']['xgboost']['params']['nthread'],  # Use all available cores
+                "verbose": self.config['models']['xgboost']['params']['verbose']
+                            }
         
         if model_name == 'catboost':
             params = {
@@ -437,7 +508,7 @@ class psML:
                 'l2_leaf_reg': p['l2_leaf_reg'],
                 'border_count': p['border_count'],
                 'random_seed': 42,
-                'verbose': False,
+                'verbose': self.config['models']['catboost']['params']['verbose'],
                 'bootstrap_type': p['bootstrap_type'],
                 #'boosting_type': p['boosting_type'],
                 'feature_border_type': p['feature_border_type'],
@@ -445,8 +516,8 @@ class psML:
                 'min_data_in_leaf': p['min_data_in_leaf'],
                 'random_strength': p['random_strength'],
                 'grow_policy': p['grow_policy'],
-                }
-
+                'thread_count': self.config['models']['catboost']['params']['thread_count'],  # Use all available cores
+            }
             if p['bootstrap_type'] == 'Bernoulli':
                 params['subsample'] = p['subsample']
             if p['bootstrap_type'] == 'Bayesian':
@@ -467,26 +538,39 @@ class psML:
                 "device": 'cuda' if self.config['models']['pytorch']['params']['device'] == 'gpu' else 'cpu',
                 "loss":  self.config['models']['pytorch']['params']['objective'],
                 "embedding_info": self.columns['embedding_info'],
-                }
-
+                "num_threads": self.config['models']['pytorch']['params']['num_threads'],  # Use all available cores for data loading
+                "verbose": self.config['models']['pytorch']['params']['verbose']
+            }
+        
         final_preprocessor = clone(self.preprocessor)
         final_preprocessor.fit(self.X_train, self.y_train)
         # Transform training and validation data
         X_test_transformed = final_preprocessor.transform(self.X_test)
 
-        if model_name == 'lightgbm':
-            clf2 = LGBMClassifier(**params)
-        elif model_name == 'xgboost':
-            clf2 = XGBClassifier(**params)
-        elif model_name == 'catboost':
-            clf2 = CatBoostClassifier(**params)
-        elif model_name == 'pytorch':
-            clf2 = PyTorchClassifier(**params)
+        if self.config['dataset']['task_type'] == 'classification':
+            if model_name == 'lightgbm':
+                clf2 = LGBMClassifier(**params)
+            elif model_name == 'xgboost':
+                clf2 = XGBClassifier(**params)
+            elif model_name == 'catboost':
+                clf2 = CatBoostClassifier(**params)
+            elif model_name == 'pytorch':
+                clf2 = PyTorchClassifier(**params)
+        elif self.config['dataset']['task_type'] == 'regression':
+            if model_name == 'lightgbm':
+                clf2 = LGBMRegressor(**params)
+            elif model_name == 'xgboost':
+                clf2 = XGBRegressor(**params)
+            elif model_name == 'catboost':
+                clf2 = CatBoostRegressor(**params)
+            elif model_name == 'pytorch':
+                clf2 = PyTorchRegressor(**params)
 
         final_pipeline = Pipeline([
-                    ('preprocessor', final_preprocessor),
-                    (model_name, clf2)  
-                ])
+            ('preprocessor', final_preprocessor),
+            (model_name, clf2)
+        ])
+
         
 
         if model_name == 'lightgbm':
@@ -522,8 +606,12 @@ class psML:
                 pytorch__eval_set=[X_test_transformed, self.y_test],
             )
         
-        final_ypred = final_pipeline.predict_proba(self.X_test)
-        final_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, final_ypred[:, 1])
+        if self.config['dataset']['task_type'] == 'classification':
+            final_ypred = final_pipeline.predict_proba(self.X_test)
+            final_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, final_ypred[:, 1])
+        else:
+            final_ypred = final_pipeline.predict(self.X_test)
+            final_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, final_ypred)
 
         self.models[model_name]['final_model'] = {
             'model': final_pipeline,
@@ -533,14 +621,22 @@ class psML:
         print(f'===============  {model_name} test score: {final_score} =============')
 
     def build_ensemble_cv(self):
+        """
+        That function builds the ensemble model using models from best optuna tuner cv models and choosen meta model.
+        """
+        if self.config['dataset']['verbose'] > 0:
+            print(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
         
         if self.config['stacking']['cv_enabled']:
+
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Final estimator: {self.config["stacking"]["meta_model"]}')
 
             for model_name in self.config['models']:
                 if self.config['models'][model_name]['enabled']:
                     
-                    if self.verbose > 0:
-                        print(f'===============  {model_name} stacking training ... ', end='')
+                    if self.config['dataset']['verbose'] > 0:
+                        print(f'Starting {model_name} cv stacking training ... ', end='')
 
                     # Disable early stopping for XGBoost models
                     if model_name == 'xgboost':
@@ -554,39 +650,68 @@ class psML:
                         (model_name + str(i+1), self.models[model_name]['cv_model']['fold' + str(i+1)]['model'])
                         for i in range(len(self.models[model_name]['cv_model']))
                     ]
+
                     
-                    if self.config['stacking']['meta_model'] == 'catboost':
-                        final_estimator = CatBoostClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'lightgbm':
-                        final_estimator = LGBMClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'xgboost':
-                        final_estimator = XGBClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'linear':
-                        final_estimator = RidgeClassifier()
+
+                    if self.config['dataset']['task_type'] == 'classification':
+                        if self.config['stacking']['meta_model'] == 'catboost':
+                            final_estimator = CatBoostClassifier(random_state=42, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'])
+                        elif self.config['stacking']['meta_model'] == 'lightgbm':
+                            final_estimator = LGBMClassifier(random_state=42, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'])
+                        elif self.config['stacking']['meta_model'] == 'xgboost':
+                            final_estimator = XGBClassifier(random_state=42, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'])
+                        elif self.config['stacking']['meta_model'] == 'linear':
+                            final_estimator = RidgeClassifier()
+                        
+                    elif self.config['dataset']['task_type'] == 'regression':
+                        if self.config['stacking']['meta_model'] == 'catboost':
+                            final_estimator = CatBoostRegressor(random_state=42, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'])
+                        elif self.config['stacking']['meta_model'] == 'lightgbm':
+                            final_estimator = LGBMRegressor(random_state=42, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'])
+                        elif self.config['stacking']['meta_model'] == 'xgboost':
+                            final_estimator = XGBRegressor(random_state=42, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'])
+                        elif self.config['stacking']['meta_model'] == 'linear':
+                            final_estimator = Ridge()
                     
-                    st = StackingClassifier(
-                        estimators=base_estimators,
-                        final_estimator=final_estimator,
-                        cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit'
+                    if self.config['dataset']['task_type'] == 'classification':
+                        st = StackingClassifier(
+                            estimators=base_estimators,
+                            final_estimator=final_estimator,
+                            cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit',
+                            n_jobs=-1,
+
                     )
+                    elif self.config['dataset']['task_type'] == 'regression':
+                        st = StackingRegressor(
+                            estimators=base_estimators,
+                            final_estimator=final_estimator,
+                            cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit',
+                            n_jobs=-1,
+                        )
+
+                    
                     st.fit(self.X_train, self.y_train)
 
-                    y_pred = st.predict_proba(self.X_test)
-                    stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
+                    if self.config['dataset']['task_type'] == 'classification':
+                        y_pred = st.predict_proba(self.X_test)
+                        stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
+                    elif self.config['dataset']['task_type'] == 'regression':
+                        y_pred = st.predict(self.X_test)
+                        stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
                     
-                    self.models[model_name]['ensemble_stacking'] = {
+                    self.models[model_name]['ensemble_stacking_cv'] = {
                         'model': st,
                         'score': stacking_score
                     }
                     
-                    print(f'score: {self.models[model_name]["ensemble_stacking"]["score"]}')
+                    print(f'score: {self.models[model_name]["ensemble_stacking_cv"]["score"]}')
         
         if self.config['voting']['cv_enabled']:
 
             for model_name in self.config['models']:
                 if self.config['models'][model_name]['enabled']:
                     
-                    if self.verbose > 0:
+                    if self.config['dataset']['verbose'] > 0:
                         print(f'===============  {model_name} voting training ... ', end='')
 
                     if self.config['voting']['prefit'] == False:
@@ -600,107 +725,166 @@ class psML:
                             for i in range(len(self.models[model_name]['cv_model']))
                         ]
                     
-                    vt = VotingClassifier(
-                        estimators=base_estimators,
-                        voting='soft',
-                    )
+                    if self.config['dataset']['task_type'] == 'classification':
+                        vt = VotingClassifier(
+                            estimators=base_estimators,
+                            voting='soft',
+                        )
+                    elif self.config['dataset']['task_type'] == 'regression':
+                        vt = VotingRegressor(
+                            estimators=base_estimators,
+                        )
 
                     if self.config['voting']['prefit'] == False:
                         vt.fit(self.X_train, self.y_train)
                     else:
                         vt.estimators_ = base_estimators
                     
+                    if self.config['dataset']['task_type'] == 'classification':
+                        y_pred = vt.predict_proba(self.X_test)
+                        voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
+                    elif self.config['dataset']['task_type'] == 'regression':
+                        y_pred = vt.predict(self.X_test)
+                        voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
                     
-                    y_pred = vt.predict_proba(self.X_test)
-                    voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
-                    
-                    self.models[model_name]['ensemble_voting'] = {
+                    self.models[model_name]['ensemble_voting_cv'] = {
                         'model': vt,
                         'score': voting_score
                     }
                     
-                    print(f'score: {self.models[model_name]["ensemble_voting"]["score"]}')
+                    print(f'score: {self.models[model_name]["ensemble_voting_cv"]["score"]}')
 
-def build_ensemble_final(self):
+    def build_ensemble_final(self):
+        """
+        That function builds the final ensemble model using models from best optuna tuner final models and choosen meta model.
+        """
+
+        if self.config['dataset']['verbose'] > 0:
+            print(f'===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================')
         
-        if self.config['stacking']['cv_enabled']:
+        if self.config['stacking']['final_enabled']:
+
+            base_estimators = []
 
             for model_name in self.config['models']:
                 if self.config['models'][model_name]['enabled']:
                     
-                    if self.verbose > 0:
-                        print(f'===============  {model_name} stacking training ... ', end='')
-
                     # Disable early stopping for XGBoost models
                     if model_name == 'xgboost':
-                        for i in range(len(self.models[model_name]['cv_model'])):
-                            # Get the XGBoost model from the pipeline
-                            xgb_model = self.models[model_name]['cv_model']['fold' + str(i+1)]['model'].named_steps[model_name]
-                            # Disable early stopping
-                            xgb_model.set_params(early_stopping_rounds=None)
+                        xgb_model = self.models[model_name]['final_model']['model'].named_steps[model_name]
+                        # Disable early stopping
+                        xgb_model.set_params(early_stopping_rounds=None)
 
-                    base_estimators = [
-                        (model_name + str(i+1), self.models[model_name]['cv_model']['fold' + str(i+1)]['model'])
-                        for i in range(len(self.models[model_name]['cv_model']))
-                    ]
-                    
-                    if self.config['stacking']['meta_model'] == 'catboost':
-                        final_estimator = CatBoostClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'lightgbm':
-                        final_estimator = LGBMClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'xgboost':
-                        final_estimator = XGBClassifier(random_state=42, verbose=0)
-                    elif self.config['stacking']['meta_model'] == 'linear':
-                        final_estimator = RidgeClassifier()
-                    
-                    st = StackingClassifier(
-                        estimators=base_estimators,
-                        final_estimator=final_estimator,
-                        cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit'
+                    if self.config['dataset']['verbose'] > 0:
+                        print(f'Adding {model_name} to base estimators')
+
+                    base_estimators.append(
+                        (model_name, self.models[model_name]['final_model']['model'])
                     )
-                    st.fit(self.X_train, self.y_train)
 
-                    y_pred = st.predict_proba(self.X_test)
-                    stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
-                    
-                    self.models[model_name]['ensemble_stacking'] = {
-                        'model': st,
-                        'score': stacking_score
-                    }
-                    
-                    print(f'score: {self.models[model_name]["ensemble_stacking"]["score"]}')
+
+            if self.config['dataset']['task_type'] == 'classification':
+                if self.config['stacking']['meta_model'] == 'catboost':
+                    final_estimator = CatBoostClassifier(random_state=42, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'])
+                elif self.config['stacking']['meta_model'] == 'lightgbm':
+                    final_estimator = LGBMClassifier(random_state=42, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'])
+                elif self.config['stacking']['meta_model'] == 'xgboost':    
+                    final_estimator = XGBClassifier(random_state=42, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'])
+                elif self.config['stacking']['meta_model'] == 'linear':
+                    final_estimator = RidgeClassifier()
+            elif self.config['dataset']['task_type'] == 'regression':
+                if self.config['stacking']['meta_model'] == 'catboost':
+                    final_estimator = CatBoostRegressor(random_state=42, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'])
+                elif self.config['stacking']['meta_model'] == 'lightgbm':
+                    final_estimator = LGBMRegressor(random_state=42, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'])
+                elif self.config['stacking']['meta_model'] == 'xgboost':
+                    final_estimator = XGBRegressor(random_state=42, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'])
+                elif self.config['stacking']['meta_model'] == 'linear':
+                    final_estimator = Ridge()
+
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Final estimator: {self.config["stacking"]["meta_model"]}')
+                print(f'Starting stacking training ... ', end='')
+            
+            if self.config['dataset']['task_type'] == 'classification':
+                st = StackingClassifier(
+                    estimators=base_estimators,
+                    final_estimator=final_estimator,
+                    cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit',
+                    n_jobs=-1
+                )
+            elif self.config['dataset']['task_type'] == 'regression':
+                st = StackingRegressor(
+                    estimators=base_estimators,
+                    final_estimator=final_estimator,
+                    cv=self.config['stacking']['cv_folds'] if self.config['stacking']['prefit'] == False else 'prefit',
+                    n_jobs=-1
+                )
+            
+            st.fit(self.X_train, self.y_train)
+
+            if self.config['dataset']['task_type'] == 'classification':
+                y_pred = st.predict_proba(self.X_test)
+                stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
+            elif self.config['dataset']['task_type'] == 'regression':
+                y_pred = st.predict(self.X_test)
+                stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
+
+            self.models['ensemble_stacking_final'] = {
+                    'model': st,
+                    'score': stacking_score
+                }
+            
+            if self.config['dataset']['verbose'] > 0:
+                print(f'score: {self.models["ensemble_stacking_final"]["score"]}')
         
-        if self.config['voting']['cv_enabled']:
+        if self.config['voting']['final_enabled']:
+
+            base_estimators = []
 
             for model_name in self.config['models']:
                 if self.config['models'][model_name]['enabled']:
-                    
-                    if self.verbose > 0:
-                        print(f'===============  {model_name} voting training ... ', end='')
 
                     if self.config['voting']['prefit'] == False:
-                        base_estimators = [
-                            (model_name + str(i+1), self.models[model_name]['cv_model']['fold' + str(i+1)]['model'])
-                            for i in range(len(self.models[model_name]['cv_model']))
-                        ]
+                        base_estimators.append(
+                            (model_name, self.models[model_name]['final_model']['model'])
+                        )
                     else:
-                        base_estimators = [
-                            self.models[model_name]['cv_model']['fold' + str(i+1)]['model']
-                            for i in range(len(self.models[model_name]['cv_model']))
-                        ]
-                    
-                    vt = VotingClassifier(
-                        estimators=base_estimators,
-                        voting='soft',
-                    )
-                    vt.fit(self.X_train, self.y_train)
+                        base_estimators.append(
+                            self.models[model_name]['final_model']['model']
+                        )
 
-                    y_pred = vt.predict_proba(self.X_test)
-                    voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
-                    
-                    self.models[model_name]['ensemble_voting'] = {
-                        'model': vt,
-                        'score': voting_score
-                    }
-                    
-                    print(f'score: {self.models[model_name]["ensemble_voting"]["score"]}')
+            if self.config['dataset']['task_type'] == 'classification':
+                vt = VotingClassifier(
+                    estimators=base_estimators,
+                    voting='soft',
+                    n_jobs=-1
+                )
+            elif self.config['dataset']['task_type'] == 'regression':
+                vt = VotingRegressor(
+                    estimators=base_estimators,
+                    n_jobs=-1
+                )
+            
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Starting voting training ... ', end='')
+
+            if self.config['voting']['prefit'] == False:
+                vt.fit(self.X_train, self.y_train)
+            else:
+                vt.estimators_ = base_estimators
+
+            if self.config['dataset']['task_type'] == 'classification':
+                y_pred = vt.predict_proba(self.X_test)
+                voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred[:,1])
+            elif self.config['dataset']['task_type'] == 'regression':
+                y_pred = vt.predict(self.X_test)
+                voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
+            
+            self.models['ensemble_voting_final'] = {
+                'model': vt,
+                'score': voting_score
+            }
+            
+            if self.config['dataset']['verbose'] > 0:
+                print(f'score: {self.models["ensemble_voting_final"]["score"]}')

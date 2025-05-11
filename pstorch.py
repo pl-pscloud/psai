@@ -11,6 +11,7 @@ from datetime import datetime
 import warnings
 import seaborn as sns
 import matplotlib.pyplot as plt
+import os
 
 warnings.filterwarnings('ignore')
 
@@ -54,7 +55,8 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             loss='bcelogit', 
             verbose=1,
             weight_init = 'default',
-            device = 'cpu'
+            device = 'cpu',
+            num_threads = os.cpu_count(),
         ):
             self.learning_rate = learning_rate
             self.batch_size = batch_size
@@ -75,6 +77,10 @@ class PyTorchClassifier(BaseEstimator, ClassifierMixin):
             self.eval_info = {}
             self.weight_init = weight_init
             self._classes = None  # Initialize classes attribute
+            self.num_threads = num_threads
+
+            if self.device == 'cpu':
+                torch.set_num_threads(self.num_threads)
 
     def build_model(self):
         layers = []
@@ -632,7 +638,8 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         loss='mse',
         weight_init = 'default',
         verbose=1,
-        device = 'cpu'
+        device = 'cpu',
+        num_threads = os.cpu_count(),
     ):
         self.learning_rate = learning_rate
         self.batch_size = batch_size
@@ -652,6 +659,10 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
         self.loss = loss
         self.eval_info = {}
         self.weight_init = weight_init
+        self.num_threads = num_threads
+
+        if self.device == 'cpu':
+            torch.set_num_threads(self.num_threads)
 
     def build_model(self):
         layers = []
@@ -854,7 +865,7 @@ class PyTorchRegressor(BaseEstimator, RegressorMixin):
             if cat_val_features is not None:
                 cat_val_features_tensor = torch.tensor(cat_val_features, dtype=torch.long).to(self.device)
             num_val_features_tensor = torch.tensor(num_val_features, dtype=torch.float32).to(self.device)
-            y_val_tensor = torch.tensor(eval_set[1], dtype=torch.float32).view(-1, 1).to(self.device)
+            y_val_tensor = torch.tensor(eval_set[1].values, dtype=torch.float32).view(-1, 1).to(self.device)
         else:
             cat_val_features_tensor = None
             num_val_features_tensor = None
