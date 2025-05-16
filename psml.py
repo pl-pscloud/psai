@@ -5,7 +5,7 @@ from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegres
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import KFold, train_test_split, GroupKFold, StratifiedGroupKFold, StratifiedKFold
-from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_log_error, root_mean_squared_error, mean_absolute_percentage_error, accuracy_score, f1_score, roc_auc_score, log_loss, make_scorer
+from sklearn.metrics import mean_squared_error, mean_absolute_error, root_mean_squared_log_error, root_mean_squared_error, mean_absolute_percentage_error, accuracy_score, f1_score, roc_auc_score, log_loss, make_scorer, mean_squared_log_error, root_mean_squared_log_error
 from sklearn.base import clone
 import pandas as pd
 import numpy as np
@@ -70,6 +70,9 @@ class psML:
         self.y_test = y_test
         self.columns = {}
         self.preprocessor = None
+
+        # Store min value of y_train for rmsle_safe
+        self.y_train_min = self.y_train.min()
         
         
     def save_model(self, filepath):
@@ -154,16 +157,37 @@ class psML:
 
     def scores(self):
         if self.config['models']['lightgbm']['enabled']:
-            print(f'LightGBM CV Score: {self.models["lightgbm"]["cv_score"]} , Test Score: {self.models["lightgbm"]["final_model"]["score"]}')
+            print(f'LightGBM CV Score: {self.models["lightgbm"]["cv_score"]} , Test Score: {self.models["final_model_lightgbm"]["score"]}')
 
         if self.config['models']['xgboost']['enabled']:
-            print(f'XGBoost CV Score: {self.models["xgboost"]["cv_score"]} , Test Score: {self.models["xgboost"]["final_model"]["score"]}')
+            print(f'XGBoost CV Score: {self.models["xgboost"]["cv_score"]} , Test Score: {self.models["final_model_xgboost"]["score"]}')
 
         if self.config['models']['catboost']['enabled']:
-            print(f'CatBoost CV Score: {self.models["catboost"]["cv_score"]} , Test Score: {self.models["catboost"]["final_model"]["score"]}')
+            print(f'CatBoost CV Score: {self.models["catboost"]["cv_score"]} , Test Score: {self.models["final_model_catboost"]["score"]}')
         
         if self.config['models']['pytorch']['enabled']:
-            print(f'PyTorch CV Score: {self.models["pytorch"]["cv_score"]} , Test Score: {self.models["pytorch"]["final_model"]["score"]}')
+            print(f'PyTorch CV Score: {self.models["pytorch"]["cv_score"]} , Test Score: {self.models["final_model_pytorch"]["score"]}')
+
+    def rmsle_safe(self, y_true, y_pred):
+        """
+        Root Mean Squared Logarithmic Error that handles negative values
+        by converting them to the minimum value from the training set.
+        """
+        # Convert to numpy arrays
+        y_true = np.array(y_true).flatten()
+        y_pred = np.array(y_pred).flatten()
+        
+        # Get the minimum value as a scalar (not a Series)
+        min_val = float(self.y_train_min)
+        if min_val <= 0:
+            min_val = 0.1  # Ensure it's positive
+        
+        # Replace negative values with min_val
+        y_true = np.maximum(y_true, min_val)
+        y_pred = np.maximum(y_pred, min_val)
+        
+        # Calculate RMSLE using np.log1p for safety
+        return np.sqrt(mean_squared_error(np.log1p(y_true), np.log1p(y_pred)))
 
     def get_evaluation_metric(self,metric_name):
        
@@ -174,6 +198,9 @@ class psML:
             'prec': lambda y_true, y_pred: precision_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
             'mse': mean_squared_error,
             'rmse': lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)),
+            'msle': mean_squared_log_error,
+            'rmsle': root_mean_squared_log_error,
+            'rmsle_safe': self.rmsle_safe,
             'mae': mean_absolute_error,
             'mape': mean_absolute_percentage_error,
 
@@ -613,7 +640,7 @@ class psML:
             final_ypred = final_pipeline.predict(self.X_test)
             final_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, final_ypred)
 
-        self.models[model_name]['final_model'] = {
+        self.models[f'final_model_{model_name}'] = {
             'model': final_pipeline,
             'score': final_score
         }
@@ -699,12 +726,12 @@ class psML:
                         y_pred = st.predict(self.X_test)
                         stacking_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
                     
-                    self.models[model_name]['ensemble_stacking_cv'] = {
+                    self.models[f'ensemble_stacking_cv_{model_name}'] = {
                         'model': st,
                         'score': stacking_score
                     }
                     
-                    print(f'score: {self.models[model_name]["ensemble_stacking_cv"]["score"]}')
+                    print(f'score: {self.models[f"ensemble_stacking_cv_{model_name}"]["score"]}')
         
         if self.config['voting']['cv_enabled']:
 
@@ -747,12 +774,12 @@ class psML:
                         y_pred = vt.predict(self.X_test)
                         voting_score = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])(self.y_test, y_pred)
                     
-                    self.models[model_name]['ensemble_voting_cv'] = {
+                    self.models[f'ensemble_voting_cv_{model_name}'] = {
                         'model': vt,
                         'score': voting_score
                     }
                     
-                    print(f'score: {self.models[model_name]["ensemble_voting_cv"]["score"]}')
+                    print(f'score: {self.models[f"ensemble_voting_cv_{model_name}"]["score"]}')
 
     def build_ensemble_final(self):
         """
@@ -771,7 +798,7 @@ class psML:
                     
                     # Disable early stopping for XGBoost models
                     if model_name == 'xgboost':
-                        xgb_model = self.models[model_name]['final_model']['model'].named_steps[model_name]
+                        xgb_model = self.models[f'final_model_{model_name}']['model'].named_steps[model_name]
                         # Disable early stopping
                         xgb_model.set_params(early_stopping_rounds=None)
 
@@ -779,9 +806,8 @@ class psML:
                         print(f'Adding {model_name} to base estimators')
 
                     base_estimators.append(
-                        (model_name, self.models[model_name]['final_model']['model'])
+                        (model_name, self.models[f'final_model_{model_name}']['model'])
                     )
-
 
             if self.config['dataset']['task_type'] == 'classification':
                 if self.config['stacking']['meta_model'] == 'catboost':
@@ -847,11 +873,11 @@ class psML:
 
                     if self.config['voting']['prefit'] == False:
                         base_estimators.append(
-                            (model_name, self.models[model_name]['final_model']['model'])
+                            (model_name, self.models[f'final_model_{model_name}']['model'])
                         )
                     else:
                         base_estimators.append(
-                            self.models[model_name]['final_model']['model']
+                            self.models[f'final_model_{model_name}']['model']
                         )
 
             if self.config['dataset']['task_type'] == 'classification':
