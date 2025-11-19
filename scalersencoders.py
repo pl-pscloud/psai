@@ -22,65 +22,62 @@ Logtransformer = FunctionTransformer(
     feature_names_out=identity_feature_names_out
 )
 
-#imputers, encoders etc
 dim_config = {
-    0: None,
-    1: PCA(n_components=5,svd_solver='auto'), 
-    2: PCA(n_components=10,svd_solver='auto'),
-    3: KernelPCA(n_components=5, kernel='rbf', gamma=1),
-    4: KernelPCA(n_components=10, kernel='rbf', gamma=0.1),
-    5: TruncatedSVD(n_components=5),
-    6: TruncatedSVD(n_components=10),
-    
+    'none': None,
+    'pca': PCA(n_components=5,svd_solver='auto'), 
+    'pca_10': PCA(n_components=10,svd_solver='auto'),
+    'kpca': KernelPCA(n_components=5, kernel='rbf', gamma=1),
+    'kpca_10': KernelPCA(n_components=10, kernel='rbf', gamma=0.1),
+    'svd': TruncatedSVD(n_components=5),
+    'svd_10': TruncatedSVD(n_components=10),
 }
 
 numerical_imputer_config = {
-    0: None,
-    1: SimpleImputer(strategy='mean'),
-    2: SimpleImputer(strategy='median'),
-    3: SimpleImputer(strategy='constant', fill_value='-1'),
-    4: KNNImputer(n_neighbors=5),
-    5: KNNImputer(n_neighbors=10),
-    6: IterativeImputer(),
+    'none': None,
+    'mean': SimpleImputer(strategy='mean'),
+    'median': SimpleImputer(strategy='median'),
+    'constant': SimpleImputer(strategy='constant', fill_value=-1),
+    'knn': KNNImputer(n_neighbors=5),
+    'knn_10': KNNImputer(n_neighbors=10),
+    'iterative': IterativeImputer(),
 }
 
 numerical_scaler_config = {
-    0: None,
-    1: StandardScaler(),
-    2: MinMaxScaler(feature_range=(0, 1)),
-    3: RobustScaler(),
-    4: QuantileTransformer(output_distribution='normal'),
-    5: PowerTransformer(method='yeo-johnson', standardize=True),
-    6: PowerTransformer(method='box-cox', standardize=True),
-    7: Logtransformer,
+    'none': None,
+    'standard': StandardScaler(),
+    'minmax': MinMaxScaler(feature_range=(0, 1)),
+    'robust': RobustScaler(),
+    'quantile': QuantileTransformer(output_distribution='normal'),
+    'yeo-johnson': PowerTransformer(method='yeo-johnson', standardize=True),
+    'box-cox': PowerTransformer(method='box-cox', standardize=True),
+    'log': Logtransformer,
 }
 
 cat_imputer_config = {
-    0: None,
-    1: SimpleImputer(strategy='most_frequent'),
-    2: SimpleImputer(strategy='constant', fill_value='Unknown')
+    'none': None,
+    'most_frequent': SimpleImputer(strategy='most_frequent'),
+    'constant': SimpleImputer(strategy='constant', fill_value='Unknown')
 }
 
 cat_encoder_config = {
-    0: None,
-    1: OneHotEncoder(handle_unknown='ignore'),
-    2: TargetEncoder(smooth=0.1),
-    3: TargetEncoder(smooth=0.5),
-    4: TargetEncoder(smooth=1),
-    5: TargetEncoder(smooth=10),
-    6: FeatureHasher(n_features=10, input_type='string'),
-    7: LabelEncoder(),
-    8: OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
+    'none': None,
+    'onehot': OneHotEncoder(handle_unknown='ignore'),
+    'target': TargetEncoder(smooth=0.1),
+    'target_0.5': TargetEncoder(smooth=0.5),
+    'target_1': TargetEncoder(smooth=1),
+    'target_10': TargetEncoder(smooth=10),
+    'hashing': FeatureHasher(n_features=10, input_type='string'),
+    'label': LabelEncoder(),
+    'ordinal': OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
 }
 
-
 cat_scaler_config = {
-    0: None,
-    1: StandardScaler(),
-    2: MinMaxScaler(feature_range=(0, 1)),
-    3: RobustScaler(),
-    4: QuantileTransformer(n_quantiles=10, random_state=0),
-    5: FunctionTransformer(np.log1p, validate=True),
+    'none': None,
+    'standard': StandardScaler(),
+    'minmax': MinMaxScaler(feature_range=(0, 1)),
+    'robust': RobustScaler(),
+    'quantile': QuantileTransformer(n_quantiles=10, random_state=0),
+    'log': FunctionTransformer(np.log1p, validate=True),
 }
 
 def create_preprocessor(config, X):
