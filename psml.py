@@ -153,6 +153,34 @@ class psML:
         
         return metric_mapping[metric_name]
 
+    def _suggest_param(self, trial, model_name, param_name, default_type=None, **default_kwargs):
+        """
+        Suggests a parameter value based on config or defaults.
+        """
+        config_params = self.config['models'][model_name].get('optuna_params', {})
+        
+        # Check if param is in config
+        if param_name in config_params:
+            p_config = config_params[param_name]
+            p_type = p_config.get('type')
+            
+            if p_type == 'int':
+                return trial.suggest_int(param_name, p_config['low'], p_config['high'], log=p_config.get('log', False))
+            elif p_type == 'float':
+                return trial.suggest_float(param_name, p_config['low'], p_config['high'], log=p_config.get('log', False))
+            elif p_type == 'categorical':
+                return trial.suggest_categorical(param_name, p_config['choices'])
+        
+        # Fallback to default
+        if default_type == 'int':
+            return trial.suggest_int(param_name, **default_kwargs)
+        elif default_type == 'float':
+            return trial.suggest_float(param_name, **default_kwargs)
+        elif default_type == 'categorical':
+            return trial.suggest_categorical(param_name, **default_kwargs)
+        
+        return None
+
     def _get_model_params(self, model_name: str, trial: Optional[optuna.Trial] = None) -> Dict[str, Any]:
         """
         Centralized parameter definition. 
@@ -180,19 +208,19 @@ class psML:
             }
             if trial:
                 params.update({
-                    "boosting_type": trial.suggest_categorical('boosting_type', ['gbdt', 'goss']),
-                    "lambda_l1": trial.suggest_float("lambda_l1", 1e-8, 10.0, log=True),
-                    "lambda_l2": trial.suggest_float("lambda_l2", 1e-8, 10.0, log=True),
-                    "num_leaves": trial.suggest_int("num_leaves", 20, 300),
-                    "feature_fraction": trial.suggest_float("feature_fraction", 0.4, 1.0),
-                    "min_child_samples": trial.suggest_int("min_child_samples", 5, 100),
-                    "learning_rate": trial.suggest_float("learning_rate", 0.001, 0.2, log=True),
-                    "min_split_gain": trial.suggest_float("min_split_gain", 1e-8, 1.0, log=True),
-                    "max_depth": trial.suggest_int("max_depth", 3, 20),
+                    "boosting_type": self._suggest_param(trial, model_name, 'boosting_type', 'categorical', choices=['gbdt', 'goss']),
+                    "lambda_l1": self._suggest_param(trial, model_name, "lambda_l1", 'float', low=1e-8, high=10.0, log=True),
+                    "lambda_l2": self._suggest_param(trial, model_name, "lambda_l2", 'float', low=1e-8, high=10.0, log=True),
+                    "num_leaves": self._suggest_param(trial, model_name, "num_leaves", 'int', low=20, high=300),
+                    "feature_fraction": self._suggest_param(trial, model_name, "feature_fraction", 'float', low=0.4, high=1.0),
+                    "min_child_samples": self._suggest_param(trial, model_name, "min_child_samples", 'int', low=5, high=100),
+                    "learning_rate": self._suggest_param(trial, model_name, "learning_rate", 'float', low=0.001, high=0.2, log=True),
+                    "min_split_gain": self._suggest_param(trial, model_name, "min_split_gain", 'float', low=1e-8, high=1.0, log=True),
+                    "max_depth": self._suggest_param(trial, model_name, "max_depth", 'int', low=3, high=20),
                 })
                 if params['boosting_type'] != 'goss':
-                    params["bagging_fraction"] = trial.suggest_float("bagging_fraction", 0.4, 1.0)
-                    params["bagging_freq"] = trial.suggest_int("bagging_freq", 1, 7)
+                    params["bagging_fraction"] = self._suggest_param(trial, model_name, "bagging_fraction", 'float', low=0.4, high=1.0)
+                    params["bagging_freq"] = self._suggest_param(trial, model_name, "bagging_freq", 'int', low=1, high=7)
             else:
                 # Merge best params
                 params.update(best_params)
@@ -201,24 +229,24 @@ class psML:
             params = {
                 "objective": model_config['objective'],
                 "eval_metric": model_config['eval_metric'],
-                "device": model_config['device'],
+                "device": 'cuda' if model_config['device'] == 'gpu' else 'cpu',
                 "early_stopping_rounds": 100,
                 "nthread": model_config['nthread'],
                 "verbose": model_config['verbose']
             }
             if trial:
                 params.update({
-                    "booster": trial.suggest_categorical('booster', ['gbtree']),
-                    "max_depth": trial.suggest_int('max_depth', 3, 20),
-                    "learning_rate": trial.suggest_float('learning_rate', 0.001, 0.2, log=True),
-                    "n_estimators": trial.suggest_int('n_estimators', 500, 3000),
-                    "subsample": trial.suggest_float('subsample', 0, 1),
-                    "lambda": trial.suggest_float('lambda', 1e-4, 5, log=True),
-                    "gamma": trial.suggest_float('gamma', 1e-4, 5, log=True),
-                    "alpha": trial.suggest_float('alpha', 1e-4, 5, log=True),
-                    "min_child_weight": trial.suggest_categorical('min_child_weight', [0.5, 1, 3, 5]),
-                    "colsample_bytree": trial.suggest_float('colsample_bytree', 0.5, 1),
-                    "colsample_bylevel": trial.suggest_float('colsample_bylevel', 0.5, 1),
+                    "booster": self._suggest_param(trial, model_name, 'booster', 'categorical', choices=['gbtree']),
+                    "max_depth": self._suggest_param(trial, model_name, 'max_depth', 'int', low=3, high=20),
+                    "learning_rate": self._suggest_param(trial, model_name, 'learning_rate', 'float', low=0.001, high=0.2, log=True),
+                    "n_estimators": self._suggest_param(trial, model_name, 'n_estimators', 'int', low=500, high=3000),
+                    "subsample": self._suggest_param(trial, model_name, 'subsample', 'float', low=0, high=1),
+                    "lambda": self._suggest_param(trial, model_name, 'lambda', 'float', low=1e-4, high=5, log=True),
+                    "gamma": self._suggest_param(trial, model_name, 'gamma', 'float', low=1e-4, high=5, log=True),
+                    "alpha": self._suggest_param(trial, model_name, 'alpha', 'float', low=1e-4, high=5, log=True),
+                    "min_child_weight": self._suggest_param(trial, model_name, 'min_child_weight', 'categorical', choices=[0.5, 1, 3, 5]),
+                    "colsample_bytree": self._suggest_param(trial, model_name, 'colsample_bytree', 'float', low=0.5, high=1),
+                    "colsample_bylevel": self._suggest_param(trial, model_name, 'colsample_bylevel', 'float', low=0.5, high=1),
                 })
             else:
                 params.update(best_params)
@@ -234,24 +262,24 @@ class psML:
             }
             if trial:
                 params.update({
-                    'n_estimators': trial.suggest_int('n_estimators', 100, 3000),
-                    'learning_rate': trial.suggest_float('learning_rate', 0.001, 0.2, log=True),
-                    'depth': trial.suggest_int('depth', 4, 10),
-                    'l2_leaf_reg': trial.suggest_float('l2_leaf_reg', 1e-3, 10.0, log=True),
-                    'border_count': trial.suggest_int('border_count', 32, 128),
-                    'bootstrap_type': trial.suggest_categorical('bootstrap_type', ['Bayesian', 'Bernoulli', 'MVS']),
-                    'feature_border_type': trial.suggest_categorical('feature_border_type', ['Median', 'Uniform', 'GreedyMinEntropy']),
-                    'leaf_estimation_iterations': trial.suggest_int('leaf_estimation_iterations', 1, 10),
-                    'min_data_in_leaf': trial.suggest_int('min_data_in_leaf', 1, 30),
-                    'random_strength': trial.suggest_float('random_strength', 1e-9, 10, log=True),
-                    'grow_policy': trial.suggest_categorical('grow_policy', ['SymmetricTree', 'Depthwise', 'Lossguide']),
+                    'n_estimators': self._suggest_param(trial, model_name, 'n_estimators', 'int', low=100, high=3000),
+                    'learning_rate': self._suggest_param(trial, model_name, 'learning_rate', 'float', low=0.001, high=0.2, log=True),
+                    'depth': self._suggest_param(trial, model_name, 'depth', 'int', low=4, high=10),
+                    'l2_leaf_reg': self._suggest_param(trial, model_name, 'l2_leaf_reg', 'float', low=1e-3, high=10.0, log=True),
+                    'border_count': self._suggest_param(trial, model_name, 'border_count', 'int', low=32, high=128),
+                    'bootstrap_type': self._suggest_param(trial, model_name, 'bootstrap_type', 'categorical', choices=['Bayesian', 'Bernoulli', 'MVS']),
+                    'feature_border_type': self._suggest_param(trial, model_name, 'feature_border_type', 'categorical', choices=['Median', 'Uniform', 'GreedyMinEntropy']),
+                    'leaf_estimation_iterations': self._suggest_param(trial, model_name, 'leaf_estimation_iterations', 'int', low=1, high=10),
+                    'min_data_in_leaf': self._suggest_param(trial, model_name, 'min_data_in_leaf', 'int', low=1, high=30),
+                    'random_strength': self._suggest_param(trial, model_name, 'random_strength', 'float', low=1e-9, high=10, log=True),
+                    'grow_policy': self._suggest_param(trial, model_name, 'grow_policy', 'categorical', choices=['SymmetricTree', 'Depthwise', 'Lossguide']),
                 })
                 if params['bootstrap_type'] == 'Bernoulli':
-                    params['subsample'] = trial.suggest_float('subsample', 0.6, 1.0)
+                    params['subsample'] = self._suggest_param(trial, model_name, 'subsample', 'float', low=0.6, high=1.0)
                 if params['bootstrap_type'] == 'Bayesian':
-                    params['bagging_temperature'] = trial.suggest_float('bagging_temperature', 0, 1)
+                    params['bagging_temperature'] = self._suggest_param(trial, model_name, 'bagging_temperature', 'float', low=0, high=1)
                 if params['grow_policy'] == 'Lossguide':
-                    params['max_leaves'] = trial.suggest_int('max_leaves', 2, 32)
+                    params['max_leaves'] = self._suggest_param(trial, model_name, 'max_leaves', 'int', low=2, high=32)
             else:
                 params.update(best_params)
 
@@ -267,11 +295,28 @@ class psML:
             
             if trial:
                 params.update({
-                    "learning_rate": trial.suggest_categorical('learning_rate', model_config['learning_rate']),
-                    "optimizer_name": trial.suggest_categorical('optimizer_name', model_config['optimizer_name']),
-                    "batch_size": trial.suggest_categorical('batch_size', model_config['batch_size']),
-                    "net": trial.suggest_categorical('net', model_config['net']),
-                    "weight_init": trial.suggest_categorical('weight_init', model_config['weight_init']),
+                    "learning_rate": self._suggest_param(trial, model_name, 'learning_rate', 'categorical', choices=[0.001]),
+                    "optimizer_name": self._suggest_param(trial, model_name, 'optimizer_name', 'categorical', choices=['adam']),
+                    "batch_size": self._suggest_param(trial, model_name, 'batch_size', 'categorical', choices=[64, 128, 256]),
+                    "net": self._suggest_param(trial, model_name, 'net', 'categorical', choices=[
+                        [
+                            {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
+                            {'type': 'dropout', 'p': 0.1},
+                            {'type': 'dense', 'out_features': 16, 'activation': 'gelu', 'norm': 'layer_norm'},
+                            {'type': 'dropout', 'p': 0.1},
+                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
+                        ],
+                        [
+                            {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
+                            {'type': 'res_block', 'layers': [
+                                {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
+                                {'type': 'dropout', 'p': 0.1}
+                            ]},
+                            {'type': 'dense', 'out_features': 16, 'activation': 'gelu', 'norm': 'batch_norm'},
+                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
+                        ]
+                    ]),
+                    "weight_init": self._suggest_param(trial, model_name, 'weight_init', 'categorical', choices=['default']),
                     "max_epochs": model_config['train_max_epochs'],
                     "patience": model_config['train_patience'],
                 })
@@ -289,15 +334,15 @@ class psML:
             }
             if trial:
                 params.update({
-                    'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
-                    'max_depth': trial.suggest_int('max_depth', 3, 30),
-                    'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
-                    'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
-                    'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2', None]),
-                    'bootstrap': trial.suggest_categorical('bootstrap', [True, False])
+                    'n_estimators': self._suggest_param(trial, model_name, 'n_estimators', 'int', low=100, high=1000),
+                    'max_depth': self._suggest_param(trial, model_name, 'max_depth', 'int', low=3, high=30),
+                    'min_samples_split': self._suggest_param(trial, model_name, 'min_samples_split', 'int', low=2, high=20),
+                    'min_samples_leaf': self._suggest_param(trial, model_name, 'min_samples_leaf', 'int', low=1, high=10),
+                    'max_features': self._suggest_param(trial, model_name, 'max_features', 'categorical', choices=['sqrt', 'log2', None]),
+                    'bootstrap': self._suggest_param(trial, model_name, 'bootstrap', 'categorical', choices=[True, False])
                 })
                 if params['bootstrap']:
-                    params['max_samples'] = trial.suggest_float('max_samples', 0.5, 1.0)
+                    params['max_samples'] = self._suggest_param(trial, model_name, 'max_samples', 'float', low=0.5, high=1.0)
             else:
                 params.update(best_params)
 
@@ -462,7 +507,7 @@ class psML:
         
         study.optimize(
             objective, 
-            n_trials=self.config['models'][model_name]['optuna_trials'], 
+            n_trials=max(1, self.config['models'][model_name]['optuna_trials']), 
             timeout=self.config['models'][model_name].get('optuna_timeout', None),
             n_jobs=self.config['models'][model_name]['optuna_n_jobs']
         )
