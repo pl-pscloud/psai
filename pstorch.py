@@ -40,6 +40,87 @@ class MAPE_Loss(nn.Module):
     def forward(self, pred, target):
         return torch.mean(torch.abs((target - pred) / (target + self.eps)))
 
+def get_activation(act_name):
+    if not act_name: return None
+    act_name = str(act_name).lower()
+    if act_name == 'relu': return nn.ReLU()
+    elif act_name == 'leaky_relu': return nn.LeakyReLU(negative_slope=0.01)
+    elif act_name == 'sigmoid': return nn.Sigmoid()
+    elif act_name == 'tanh': return nn.Tanh()
+    elif act_name == 'silu' or act_name == 'swish': return nn.SiLU()
+    elif act_name == 'softmax': return nn.Softmax(dim=1)
+    elif act_name == 'elu': return nn.ELU(alpha=1.0)
+    elif act_name == 'selu': return nn.SELU()
+    elif act_name == 'gelu': return nn.GELU()
+    return None
+
+def get_norm(norm_name, dim):
+    if not norm_name: return None
+    norm_name = str(norm_name).lower()
+    if norm_name == 'batch_norm': return nn.BatchNorm1d(dim)
+    elif norm_name == 'layer_norm': return nn.LayerNorm(dim)
+    return None
+
+def initialize_weights(layer, weight_init='default', verbose=0):
+    if weight_init == 'default':
+        return layer
+        
+    if weight_init =='xavier_uniform':
+        nn.init.xavier_uniform_(layer.weight)
+    elif weight_init =='kaiming_uniform':
+        nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+    elif weight_init =='xavier_normal':
+        nn.init.xavier_normal_(layer.weight)
+    elif weight_init =='kaiming_normal':
+        nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+    
+    if layer.bias is not None:
+        nn.init.zeros_(layer.bias)
+
+    if verbose >= 3:
+        print(f'Layer initialization: {layer} with method {weight_init}')
+    return layer
+
+class ResidualBlock(nn.Module):
+    def __init__(self, in_features, out_features, activation='relu', norm=None, dropout=0.0, weight_init='default'):
+        super(ResidualBlock, self).__init__()
+        
+        self.lin1 = nn.Linear(in_features, out_features)
+        initialize_weights(self.lin1, weight_init)
+        
+        self.norm1 = get_norm(norm, out_features) if norm else nn.Identity()
+        self.act1 = get_activation(activation) if activation else nn.Identity()
+        self.drop = nn.Dropout(dropout)
+        
+        self.lin2 = nn.Linear(out_features, out_features)
+        initialize_weights(self.lin2, weight_init)
+        
+        self.norm2 = get_norm(norm, out_features) if norm else nn.Identity()
+        
+        if in_features != out_features:
+            self.shortcut = nn.Linear(in_features, out_features)
+            initialize_weights(self.shortcut, weight_init)
+        else:
+            self.shortcut = nn.Identity()
+            
+        self.act2 = get_activation(activation) if activation else nn.Identity()
+
+    def forward(self, x):
+        residual = self.shortcut(x)
+        
+        out = self.lin1(x)
+        if not isinstance(self.norm1, nn.Identity): out = self.norm1(out)
+        if not isinstance(self.act1, nn.Identity): out = self.act1(out)
+        out = self.drop(out)
+        
+        out = self.lin2(out)
+        if not isinstance(self.norm2, nn.Identity): out = self.norm2(out)
+        
+        out += residual
+        if not isinstance(self.act2, nn.Identity): out = self.act2(out)
+        
+        return out
+
 class PyTorchBaseEstimator(BaseEstimator):
     def __init__(
             self, 
@@ -100,28 +181,6 @@ class PyTorchBaseEstimator(BaseEstimator):
         # Calculate initial input dimension
         current_input_dim = total_embedding_dim + (self.input_dim if self.input_dim is not None else 0)
 
-        # Helper to add activation
-        def get_activation(act_name):
-            if not act_name: return None
-            act_name = str(act_name).lower()
-            if act_name == 'relu': return nn.ReLU()
-            elif act_name == 'leaky_relu': return nn.LeakyReLU(negative_slope=0.01)
-            elif act_name == 'sigmoid': return nn.Sigmoid()
-            elif act_name == 'tanh': return nn.Tanh()
-            elif act_name == 'silu' or act_name == 'swish': return nn.SiLU()
-            elif act_name == 'softmax': return nn.Softmax(dim=1)
-            elif act_name == 'elu': return nn.ELU(alpha=1.0)
-            elif act_name == 'selu': return nn.SELU()
-            return None
-
-        # Helper to add norm
-        def get_norm(norm_name, dim):
-            if not norm_name: return None
-            norm_name = str(norm_name).lower()
-            if norm_name == 'batch_norm': return nn.BatchNorm1d(dim)
-            elif norm_name == 'layer_norm': return nn.LayerNorm(dim)
-            return None
-
         # Iterate over the net configuration
         for layer_config in self.net:
             layer_type = layer_config.get('type', 'dense')
@@ -145,6 +204,23 @@ class PyTorchBaseEstimator(BaseEstimator):
                 # Update input dim for next layer
                 current_input_dim = out_features
                 
+            elif layer_type == 'residual':
+                out_features = layer_config['out_features']
+                activation = layer_config.get('activation', 'relu')
+                norm = layer_config.get('norm', None)
+                dropout = layer_config.get('dropout', 0.0)
+                
+                res_block = ResidualBlock(
+                    in_features=current_input_dim,
+                    out_features=out_features,
+                    activation=activation,
+                    norm=norm,
+                    dropout=dropout,
+                    weight_init=self.weight_init
+                )
+                layers.append(res_block)
+                current_input_dim = out_features
+
             elif layer_type == 'dropout':
                 p = layer_config.get('p', 0.5)
                 layers.append(nn.Dropout(p))
@@ -177,19 +253,7 @@ class PyTorchBaseEstimator(BaseEstimator):
         return torch.cat(embeddings, dim=1)
     
     def configure_weight(self, layer):
-        if self.weight_init =='xavier_uniform':
-            nn.init.xavier_uniform_(layer.weight)
-        elif self.weight_init =='kaiming_uniform':
-            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
-        elif self.weight_init =='xavier_normal':
-            nn.init.xavier_normal_(layer.weight)
-        elif self.weight_init =='kaiming_normal':
-            nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
-        nn.init.zeros_(layer.bias)
-
-        if self.verbose == 3:
-            print(f'Layer initialization: {layer} with method {self.weight_init}')
-        return layer
+        return initialize_weights(layer, self.weight_init, self.verbose)
 
     def configure_optimizer(self):
         params = self.model.parameters()

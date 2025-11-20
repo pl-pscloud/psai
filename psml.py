@@ -8,7 +8,7 @@ import os
 import lightgbm as lgb
 from typing import Dict, Any, Optional, Union, List
 
-from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier
+from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier, RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import Ridge, RidgeClassifier
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import KFold, train_test_split, StratifiedKFold
@@ -56,7 +56,7 @@ class psML:
         self.best_cv_models = {}
         
         # Initialize best scores with worst possible values
-        for model_name in ['lightgbm', 'xgboost', 'catboost', 'pytorch']:
+        for model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']:
             if self.config['dataset']['task_type'] == 'classification':
                 self.best_cv_scores[model_name] = 0
             else:
@@ -90,7 +90,7 @@ class psML:
         self.create_preprocessor()
         
         # List of supported models
-        supported_models = ['lightgbm', 'xgboost', 'catboost', 'pytorch']
+        supported_models = ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']
         
         for model_name in supported_models:
             if self.config['models'].get(model_name, {}).get('enabled', False):
@@ -102,7 +102,7 @@ class psML:
         self.columns = columns
 
     def scores(self):
-        for model_name in ['lightgbm', 'xgboost', 'catboost', 'pytorch']:
+        for model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']:
             if self.config['models'].get(model_name, {}).get('enabled', False):
                 cv_score = self.models.get(model_name, {}).get("cv_score", "N/A")
                 test_score = self.models.get(f"final_model_{model_name}", {}).get("score", "N/A")
@@ -281,6 +281,26 @@ class psML:
                 params["max_epochs"] = model_config['final_max_epochs']
                 params["patience"] = model_config['final_patience']
 
+        elif model_name == 'random_forest':
+            params = {
+                'verbose': model_config['verbose'],
+                'n_jobs': model_config['n_jobs'],
+                'random_state': 42
+            }
+            if trial:
+                params.update({
+                    'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
+                    'max_depth': trial.suggest_int('max_depth', 3, 30),
+                    'min_samples_split': trial.suggest_int('min_samples_split', 2, 20),
+                    'min_samples_leaf': trial.suggest_int('min_samples_leaf', 1, 10),
+                    'max_features': trial.suggest_categorical('max_features', ['sqrt', 'log2', None]),
+                    'bootstrap': trial.suggest_categorical('bootstrap', [True, False])
+                })
+                if params['bootstrap']:
+                    params['max_samples'] = trial.suggest_float('max_samples', 0.5, 1.0)
+            else:
+                params.update(best_params)
+
         return params
 
     def _create_model(self, model_name: str, params: Dict[str, Any]):
@@ -290,11 +310,13 @@ class psML:
             if model_name == 'lightgbm': return LGBMClassifier(**params)
             elif model_name == 'xgboost': return XGBClassifier(**params)
             elif model_name == 'catboost': return CatBoostClassifier(**params)
+            elif model_name == 'random_forest': return RandomForestClassifier(**params)
             elif model_name == 'pytorch': return PyTorchClassifier(**params)
         else:
             if model_name == 'lightgbm': return LGBMRegressor(**params)
             elif model_name == 'xgboost': return XGBRegressor(**params)
             elif model_name == 'catboost': return CatBoostRegressor(**params)
+            elif model_name == 'random_forest': return RandomForestRegressor(**params)
             elif model_name == 'pytorch': return PyTorchRegressor(**params)
         return None
 
@@ -324,6 +346,8 @@ class psML:
             fit_params = {
                 'eval_set': [X_val, y_val]
             }
+        elif model_name == 'random_forest':
+            fit_params = {} # Random Forest doesn't support early stopping in fit
 
         # Pipeline handling: The model is the last step in a pipeline
         if isinstance(model, Pipeline):
@@ -439,6 +463,7 @@ class psML:
         study.optimize(
             objective, 
             n_trials=self.config['models'][model_name]['optuna_trials'], 
+            timeout=self.config['models'][model_name].get('optuna_timeout', None),
             n_jobs=self.config['models'][model_name]['optuna_n_jobs']
         )
 
