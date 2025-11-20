@@ -121,6 +121,165 @@ class ResidualBlock(nn.Module):
         
         return out
 
+class TabularMLP(nn.Module):
+    def __init__(self, embedding_info, n_num_features, layers_config, weight_init='default', verbose=0):
+        super(TabularMLP, self).__init__()
+        self.verbose = verbose
+        self.embedding_layers = nn.ModuleList()
+        total_embedding_dim = 0
+        
+        if embedding_info:
+            for num_categories, embedding_dim in embedding_info.values():
+                self.embedding_layers.append(nn.Embedding(num_categories, embedding_dim))
+                total_embedding_dim += embedding_dim
+                
+        current_input_dim = total_embedding_dim + n_num_features
+        
+        layers = []
+        for layer_config in layers_config:
+            layer_type = layer_config.get('type', 'dense')
+            
+            if layer_type == 'dense':
+                out_features = layer_config['out_features']
+                l = nn.Linear(current_input_dim, out_features)
+                initialize_weights(l, weight_init, verbose)
+                layers.append(l)
+                
+                norm = get_norm(layer_config.get('norm'), out_features)
+                if norm: layers.append(norm)
+                
+                act = get_activation(layer_config.get('activation'))
+                if act: layers.append(act)
+                
+                current_input_dim = out_features
+                
+            elif layer_type == 'residual':
+                out_features = layer_config['out_features']
+                res_block = ResidualBlock(
+                    in_features=current_input_dim,
+                    out_features=out_features,
+                    activation=layer_config.get('activation', 'relu'),
+                    norm=layer_config.get('norm', None),
+                    dropout=layer_config.get('dropout', 0.0),
+                    weight_init=weight_init
+                )
+                layers.append(res_block)
+                current_input_dim = out_features
+
+            elif layer_type == 'dropout':
+                p = layer_config.get('p', 0.5)
+                layers.append(nn.Dropout(p))
+                
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, x_cat, x_num):
+        embeddings = []
+        if len(self.embedding_layers) > 0 and x_cat is not None:
+            # Replace -1 (unknown categories) with 0
+            x_cat = torch.where(x_cat == -1, torch.tensor(0, device=x_cat.device), x_cat)
+            
+            for i, layer in enumerate(self.embedding_layers):
+                # Clip values to be within range
+                num_categories = layer.num_embeddings
+                x_col = torch.clamp(x_cat[:, i], min=0, max=num_categories - 1)
+                embeddings.append(layer(x_col))
+            
+            x_emb = torch.cat(embeddings, dim=1)
+            if x_num is not None:
+                x = torch.cat([x_emb, x_num], dim=1)
+            else:
+                x = x_emb
+        else:
+            x = x_num
+            
+        return self.mlp(x)
+
+class FTTransformer(nn.Module):
+    def __init__(
+        self, 
+        embedding_info, 
+        n_num_features, 
+        d_token=192, 
+        n_layers=3, 
+        n_heads=8, 
+        d_ffn_factor=1.33, 
+        attention_dropout=0.1, 
+        ffn_dropout=0.1, 
+        residual_dropout=0.0, 
+        activation='reglu',
+        n_out=1
+    ):
+        super(FTTransformer, self).__init__()
+        
+        self.d_token = d_token
+        self.embedding_layers = nn.ModuleList()
+        
+        # Categorical embeddings
+        if embedding_info:
+            for num_categories, _ in embedding_info.values():
+                # We ignore the embedding_dim from info and use d_token
+                self.embedding_layers.append(nn.Embedding(num_categories, d_token))
+        
+        # Numerical embeddings (linear layer to project to d_token)
+        self.n_num_features = n_num_features
+        
+        # CLS token
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_token))
+        
+        # Transformer Encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_token,
+            nhead=n_heads,
+            dim_feedforward=int(d_token * d_ffn_factor),
+            dropout=attention_dropout, # Note: PyTorch's dropout arg applies to both self-attn and FFN in some versions, but mainly after attn
+            activation=activation if activation != 'reglu' else 'relu', # PyTorch doesn't support reglu natively in older versions
+            batch_first=True,
+            norm_first=True
+        )
+        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        
+        # Head
+        self.head = nn.Sequential(
+            nn.LayerNorm(d_token),
+            nn.ReLU(),
+            nn.Linear(d_token, n_out)
+        )
+
+    def forward(self, x_cat, x_num):
+        batch_size = x_cat.shape[0] if x_cat is not None else x_num.shape[0]
+        tokens = []
+        
+        # CLS Token
+        tokens.append(self.cls_token.expand(batch_size, -1, -1))
+        
+        # Categorical embeddings
+        if len(self.embedding_layers) > 0 and x_cat is not None:
+             # Replace -1 (unknown categories) with 0
+            x_cat = torch.where(x_cat == -1, torch.tensor(0, device=x_cat.device), x_cat)
+            
+            for i, layer in enumerate(self.embedding_layers):
+                num_categories = layer.num_embeddings
+                x_col = torch.clamp(x_cat[:, i], min=0, max=num_categories - 1)
+                tokens.append(layer(x_col).unsqueeze(1))
+                
+        # Numerical embeddings
+        if self.n_num_features > 0 and x_num is not None:
+             # We will use a ModuleList of Linear layers for numerical features
+             if not hasattr(self, 'num_embeddings_list'):
+                 self.num_embeddings_list = nn.ModuleList([nn.Linear(1, self.d_token) for _ in range(self.n_num_features)]).to(x_num.device)
+             
+             for i in range(self.n_num_features):
+                 tokens.append(self.num_embeddings_list[i](x_num[:, i].unsqueeze(-1)).unsqueeze(1))
+
+        x = torch.cat(tokens, dim=1) # (batch, 1 + n_cat + n_num, d_token)
+        
+        x = self.transformer(x)
+        
+        # Use CLS token for prediction
+        x_cls = x[:, 0, :]
+        return self.head(x_cls)
+
+
 class PyTorchBaseEstimator(BaseEstimator):
     def __init__(
             self, 
@@ -129,7 +288,9 @@ class PyTorchBaseEstimator(BaseEstimator):
             batch_size=32, 
             max_epochs=1000, 
             patience=10, 
-            net=None, 
+            model_type='mlp', # 'mlp' or 'ft_transformer'
+            net=None, # For MLP
+            ft_params=None, # For FT-Transformer
             embedding_info=None,  
             loss=None, 
             verbose=1,
@@ -145,11 +306,15 @@ class PyTorchBaseEstimator(BaseEstimator):
             self.best_model = None
             self.device = device
             self.input_dim = None
+            self.model_type = model_type
+            
             # Default net structure if None provided
             self.net = net if net is not None else [
                 {'type': 'dense', 'out_features': 256, 'activation': 'relu', 'norm': None},
                 {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
             ]
+            self.ft_params = ft_params if ft_params is not None else {}
+            
             self.is_fitted_ = False
             self.optimizer_name = optimizer_name
             self.optimizer = None
@@ -165,95 +330,24 @@ class PyTorchBaseEstimator(BaseEstimator):
                 torch.set_num_threads(self.num_threads)
 
     def build_model(self):
-        layers = []
-        embedding_layers = []
+        n_num_features = self.input_dim
         
-        # Add embedding layers for high cardinality categorical features if embedding_info is provided
-        total_embedding_dim = 0
-        if self.embedding_info:
-            for num_categories, embedding_dim in self.embedding_info.values():
-                embedding_layer = nn.Embedding(num_categories, embedding_dim)
-                embedding_layers.append(embedding_layer.to(self.device))
-                total_embedding_dim += embedding_dim
-
-        self.embedding_layers = nn.ModuleList(embedding_layers)
-
-        # Calculate initial input dimension
-        current_input_dim = total_embedding_dim + (self.input_dim if self.input_dim is not None else 0)
-
-        # Iterate over the net configuration
-        for layer_config in self.net:
-            layer_type = layer_config.get('type', 'dense')
-            
-            if layer_type == 'dense':
-                out_features = layer_config['out_features']
-                
-                # Linear Layer
-                l = nn.Linear(current_input_dim, out_features)
-                l = self.configure_weight(l)
-                layers.append(l)
-                
-                # Normalization
-                norm = get_norm(layer_config.get('norm'), out_features)
-                if norm: layers.append(norm)
-                
-                # Activation
-                act = get_activation(layer_config.get('activation'))
-                if act: layers.append(act)
-                
-                # Update input dim for next layer
-                current_input_dim = out_features
-                
-            elif layer_type == 'residual':
-                out_features = layer_config['out_features']
-                activation = layer_config.get('activation', 'relu')
-                norm = layer_config.get('norm', None)
-                dropout = layer_config.get('dropout', 0.0)
-                
-                res_block = ResidualBlock(
-                    in_features=current_input_dim,
-                    out_features=out_features,
-                    activation=activation,
-                    norm=norm,
-                    dropout=dropout,
-                    weight_init=self.weight_init
-                )
-                layers.append(res_block)
-                current_input_dim = out_features
-
-            elif layer_type == 'dropout':
-                p = layer_config.get('p', 0.5)
-                layers.append(nn.Dropout(p))
-                
-        if self.verbose >= 2:
-            print(f"Embedding layers: {embedding_layers}")
-            print(f"Layers: {layers}")
-            
-        return nn.Sequential(*layers).to(self.device)
-
-    def forward_embeddings(self, cat_features):
-        if not self.embedding_layers:
-            return None
-
-        if self.verbose >= 3:
-            print(f"Categorical Features Tensor Before Clamping: {cat_features}")
-
-        # Replace -1 (unknown categories) with 0
-        cat_features = torch.where(cat_features == -1, torch.tensor(0).to(self.device), cat_features)
-
-        # Clip values
-        for i, embedding_layer in enumerate(self.embedding_layers):
-            num_categories = embedding_layer.num_embeddings
-            cat_features[:, i] = torch.clamp(cat_features[:, i], min=0, max=num_categories - 1)
-
-        if self.verbose >= 3:
-            print(f"Categorical Features Tensor After Clamping: {cat_features}")
-
-        embeddings = [embedding(cat_features[:, i]) for i, embedding in enumerate(self.embedding_layers)]
-        return torch.cat(embeddings, dim=1)
-    
-    def configure_weight(self, layer):
-        return initialize_weights(layer, self.weight_init, self.verbose)
+        if self.model_type == 'mlp':
+            return TabularMLP(
+                embedding_info=self.embedding_info,
+                n_num_features=n_num_features,
+                layers_config=self.net,
+                weight_init=self.weight_init,
+                verbose=self.verbose
+            )
+        elif self.model_type == 'ft_transformer':
+            return FTTransformer(
+                embedding_info=self.embedding_info,
+                n_num_features=n_num_features,
+                **self.ft_params
+            )
+        else:
+            raise ValueError(f"Unknown model_type: {self.model_type}")
 
     def configure_optimizer(self):
         params = self.model.parameters()
@@ -318,13 +412,27 @@ class PyTorchBaseEstimator(BaseEstimator):
         y_val_tensor = to_tensor(eval_y, torch.float32).view(-1, 1) if eval_y is not None else None
 
         # Datasets
-        train_tensors = [t for t in [cat_train_tensor, num_train_tensor, y_train_tensor] if t is not None]
-        train_dataset = TensorDataset(*train_tensors)
+        # We need to be careful with TensorDataset if some tensors are None
+        # We'll always pass both cat and num to the model, even if None (handled inside model)
+        # But TensorDataset needs actual tensors.
+        # Let's create a custom dataset or just handle the loop carefully.
+        # Simplest: Create dummy tensors if None? No, waste of memory.
+        # Let's just use what we have and unpack in the loop.
+        
+        tensors_to_pass = []
+        if cat_train_tensor is not None: tensors_to_pass.append(cat_train_tensor)
+        if num_train_tensor is not None: tensors_to_pass.append(num_train_tensor)
+        tensors_to_pass.append(y_train_tensor)
+        
+        train_dataset = TensorDataset(*tensors_to_pass)
         train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
 
         val_loader = None
-        if num_val_tensor is not None and y_val_tensor is not None:
-            val_tensors = [t for t in [cat_val_tensor, num_val_tensor, y_val_tensor] if t is not None]
+        if (num_val_tensor is not None or cat_val_tensor is not None) and y_val_tensor is not None:
+            val_tensors = []
+            if cat_val_tensor is not None: val_tensors.append(cat_val_tensor)
+            if num_val_tensor is not None: val_tensors.append(num_val_tensor)
+            val_tensors.append(y_val_tensor)
             val_dataset = TensorDataset(*val_tensors)
             val_loader = DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
 
@@ -350,16 +458,18 @@ class PyTorchBaseEstimator(BaseEstimator):
             all_train_labels = []
 
             for batch in train_loader:
-                if cat_train_features is not None:
+                # Unpack batch based on what we put in
+                if cat_train_tensor is not None and num_train_tensor is not None:
                     batch_cat, batch_num, batch_y = batch
-                    embedded_features = self.forward_embeddings(batch_cat)
-                    inputs = torch.cat([embedded_features, batch_num], dim=1)
+                elif cat_train_tensor is not None:
+                    batch_cat, batch_y = batch
+                    batch_num = None
                 else:
                     batch_num, batch_y = batch
-                    inputs = batch_num
+                    batch_cat = None
 
                 self.optimizer.zero_grad()
-                outputs = self.model(inputs)
+                outputs = self.model(batch_cat, batch_num)
                 loss = self.criterion(outputs, batch_y)
                 
                 # Store for metrics
@@ -391,15 +501,16 @@ class PyTorchBaseEstimator(BaseEstimator):
 
                 with torch.no_grad():
                     for batch in val_loader:
-                        if cat_val_features is not None:
+                        if cat_val_tensor is not None and num_val_tensor is not None:
                             batch_cat, batch_num, batch_y = batch
-                            embedded_features = self.forward_embeddings(batch_cat)
-                            inputs = torch.cat([embedded_features, batch_num], dim=1)
+                        elif cat_val_tensor is not None:
+                            batch_cat, batch_y = batch
+                            batch_num = None
                         else:
                             batch_num, batch_y = batch
-                            inputs = batch_num
+                            batch_cat = None
 
-                        outputs = self.model(inputs)
+                        outputs = self.model(batch_cat, batch_num)
                         loss = self.criterion(outputs, batch_y)
                         val_loss += loss.item() * batch_y.size(0)
 
@@ -552,13 +663,7 @@ class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
             cat_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device) if cat_features is not None else None
             num_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
             
-            if cat_tensor is not None:
-                embedded = self.forward_embeddings(cat_tensor)
-                inputs = torch.cat([embedded, num_tensor], dim=1)
-            else:
-                inputs = num_tensor
-            
-            raw_preds = self.model(inputs).detach().cpu().numpy()
+            raw_preds = self.model(cat_tensor, num_tensor).detach().cpu().numpy()
 
         if self.loss == 'bcelogit':
             probs = 1 / (1 + np.exp(-raw_preds.flatten()))
@@ -624,11 +729,5 @@ class PyTorchRegressor(PyTorchBaseEstimator, RegressorMixin):
             cat_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device) if cat_features is not None else None
             num_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
             
-            if cat_tensor is not None:
-                embedded = self.forward_embeddings(cat_tensor)
-                inputs = torch.cat([embedded, num_tensor], dim=1)
-            else:
-                inputs = num_tensor
-            
-            preds = self.model(inputs).detach().cpu().numpy().flatten()
+            preds = self.model(cat_tensor, num_tensor).detach().cpu().numpy().flatten()
         return preds

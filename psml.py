@@ -294,11 +294,21 @@ class psML:
             }
             
             if trial:
+                # Suggest model type first
+                model_type = self._suggest_param(trial, model_name, 'model_type', 'categorical', choices=['mlp', 'ft_transformer'])
+                params['model_type'] = model_type
+                
                 params.update({
                     "learning_rate": self._suggest_param(trial, model_name, 'learning_rate', 'categorical', choices=[0.001]),
                     "optimizer_name": self._suggest_param(trial, model_name, 'optimizer_name', 'categorical', choices=['adam']),
                     "batch_size": self._suggest_param(trial, model_name, 'batch_size', 'categorical', choices=[64, 128, 256]),
-                    "net": self._suggest_param(trial, model_name, 'net', 'categorical', choices=[
+                    "weight_init": self._suggest_param(trial, model_name, 'weight_init', 'categorical', choices=['default']),
+                    "max_epochs": model_config['train_max_epochs'],
+                    "patience": model_config['train_patience'],
+                })
+
+                if model_type == 'mlp':
+                    params["net"] = self._suggest_param(trial, model_name, 'net', 'categorical', choices=[
                         [
                             {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
                             {'type': 'dropout', 'p': 0.1},
@@ -315,13 +325,33 @@ class psML:
                             {'type': 'dense', 'out_features': 16, 'activation': 'gelu', 'norm': 'batch_norm'},
                             {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                         ]
-                    ]),
-                    "weight_init": self._suggest_param(trial, model_name, 'weight_init', 'categorical', choices=['default']),
-                    "max_epochs": model_config['train_max_epochs'],
-                    "patience": model_config['train_patience'],
-                })
+                    ])
+                elif model_type == 'ft_transformer':
+                    params["ft_params"] = {
+                        'd_token': self._suggest_param(trial, model_name, 'd_token', 'categorical', choices=[64, 128, 192, 256]),
+                        'n_layers': self._suggest_param(trial, model_name, 'n_layers', 'int', low=1, high=4),
+                        'n_heads': self._suggest_param(trial, model_name, 'n_heads', 'categorical', choices=[4, 8]),
+                        'd_ffn_factor': self._suggest_param(trial, model_name, 'd_ffn_factor', 'float', low=1.0, high=2.0),
+                        'attention_dropout': self._suggest_param(trial, model_name, 'attention_dropout', 'float', low=0.0, high=0.3),
+                        'ffn_dropout': self._suggest_param(trial, model_name, 'ffn_dropout', 'float', low=0.0, high=0.3),
+                        'residual_dropout': self._suggest_param(trial, model_name, 'residual_dropout', 'float', low=0.0, high=0.2),
+                        'activation': 'reglu',
+                        'n_out': 1
+                    }
+
             else:
                 params.update(best_params)
+                
+                # Re-structure for PyTorch class requirements
+                if params.get('model_type') == 'ft_transformer':
+                    ft_keys = ['d_token', 'n_layers', 'n_heads', 'd_ffn_factor', 
+                               'attention_dropout', 'ffn_dropout', 'residual_dropout']
+                    ft_params = {k: params.pop(k) for k in ft_keys if k in params}
+                    # Add hardcoded defaults that were used in trial but not optimized
+                    ft_params['activation'] = 'reglu'
+                    ft_params['n_out'] = 1
+                    params['ft_params'] = ft_params
+
                 # Override epochs for final training
                 params["max_epochs"] = model_config['final_max_epochs']
                 params["patience"] = model_config['final_patience']
@@ -411,6 +441,8 @@ class psML:
             
             if self.config['dataset']['verbose'] > 0:
                 print(f'===============  {model_name} training - trial {trial.number}  =========================')
+            if self.config['dataset']['verbose'] >= 2:
+                print(f'Optune used params:\n{params}')
 
             split = self.config['dataset']['cv_folds']
             scores = 0
