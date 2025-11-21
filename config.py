@@ -1,13 +1,13 @@
 
 import os
 
-optuna_trials = 2          # Number of trials for Optuna hyperparameter optimization
-optuna_n_jobs = 1          # Number of parallel Optuna jobs (studies running at once)
-optuna_metric = 'rmse_safe' # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
-model_n_jobs = int(os.cpu_count() / optuna_n_jobs) # Number of threads per model (CPU cores / optuna jobs)
-device = 'gpu'             # Device to use for training ('cpu' or 'gpu')
-verbose = 2                # Verbosity level (0: silent, 1: minimal, 2: detailed)
-models_enabled = {         # Master toggle to enable/disable specific models
+optuna_trials = 2                                   # Number of trials for Optuna hyperparameter optimization
+optuna_n_jobs = 1                                   # Number of parallel Optuna jobs (studies running at once)
+optuna_metric = 'rmse_safe'                         # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
+model_n_jobs = int(os.cpu_count() / optuna_n_jobs)  # Number of threads per model (CPU cores / optuna jobs)
+device = 'gpu'                                      # Device to use for training ('cpu' or 'gpu')
+verbose = 2                                         # Verbosity level (0: silent, 1: minimal, 2: detailed)
+models_enabled = {                                  # Master toggle to enable/disable specific models
     'lightgbm': True,
     'xgboost': True,
     'catboost': True,
@@ -17,7 +17,6 @@ models_enabled = {         # Master toggle to enable/disable specific models
     'voting': True,
 }
 
-# Dataset configuration
 # Dataset configuration
 DATASET_CONFIG = {
     'train_path': 'train.csv',  # Path to the training CSV file
@@ -32,34 +31,33 @@ DATASET_CONFIG = {
 }
 
 # Preprocessor configuration for create_preprocessor function
-# Preprocessor configuration for create_preprocessor function
 # Defines how different column types are handled in the pipeline
 PREPROCESSOR_CONFIG = {
-    'numerical': {              # Standard numerical features
-        'imputer': 'mean',      # Strategy for missing values: 'mean', 'median', 'most_frequent'
-        'scaler': 'minmax',     # Scaling method: 'standard', 'minmax', 'robust', 'none'
+    'numerical': {                  # Standard numerical features
+        'imputer': 'mean',          # Strategy for missing values: 'mean', 'median', 'most_frequent'
+        'scaler': 'minmax',         # Scaling method: 'standard', 'minmax', 'robust', 'none'
     },
-    'skewed': {                 # Numerical features with high skewness
+    'skewed': {                     # Numerical features with high skewness
         'imputer': 'mean',  
-        'scaler': 'log',        # 'log' applies log1p transformation to reduce skew
+        'scaler': 'log',            # 'log' applies log1p transformation to reduce skew
     },
-    'outlier': {                # Numerical features with detected outliers
+    'outlier': {                    # Numerical features with detected outliers
         'imputer': 'mean',  
-        'scaler': 'log',        # Using log scaling can also help dampen outlier effects
+        'scaler': 'log',            # Using log scaling can also help dampen outlier effects
     },
-    'low_cardinality': {        # Categorical features with few unique values
+    'low_cardinality': {            # Categorical features with few unique values
         'imputer': 'most_frequent',  
-        'encoder': 'onehot',    # 'onehot' encoding is efficient for low cardinality
+        'encoder': 'onehot',        # 'onehot' encoding is efficient for low cardinality
         'scaler': 'none',   
     },
-    'high_cardinality': {       # Categorical features with many unique values
+    'high_cardinality': {           # Categorical features with many unique values
         'imputer': 'most_frequent',  
-        'encoder': 'target_0.5',# 'target_0.5' implies Target Encoding (often with smoothing)
-        'scaler': 'standard',   # Scaling encoded values (useful for linear models/NNs)
+        'encoder': 'target_0.5',    # 'target_0.5' implies Target Encoding (often with smoothing)
+        'scaler': 'standard',       # Scaling encoded values (useful for linear models/NNs)
     },
-    'dimension_reduction': {    # Options for reducing feature space
-        'enabled': False,       # Toggle dimension reduction on/off
-        'method': 'none',       # Method: 'pca', 'svd', 'none'
+    'dimension_reduction': {        # Options for reducing feature space
+        'enabled': False,           # Toggle dimension reduction on/off
+        'method': 'none',           # Method: 'pca', 'svd', 'none'
     },
 }
 

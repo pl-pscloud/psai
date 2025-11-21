@@ -45,7 +45,7 @@ class psML:
         
         # Read and split data
         if X is None or y is None:
-            import pandas as pd
+
             train_path = self.config['dataset']['train_path']
             if not os.path.exists(train_path):
                 print(f"Error: Training data file not found at {train_path}")
