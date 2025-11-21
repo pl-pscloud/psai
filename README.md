@@ -19,9 +19,9 @@
 
 ```text
 .
-├── config.py               # Central configuration file
 ├── psai/
 │   ├── __init__.py
+|   ├── config.py           # Central configuration file
 │   ├── psml.py             # Core Pipeline: Training, Optimization, Ensembling
 │   ├── datasets.py         # Automated EDA & Data Reporting
 │   ├── pstorch.py          # PyTorch Models (MLP, FT-Transformer)
