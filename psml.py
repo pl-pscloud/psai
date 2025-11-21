@@ -30,11 +30,37 @@ class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
     """
-    def __init__(self, config: Dict[str, Any], X: pd.DataFrame, y: pd.Series):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None):
         self.models = {}
-        self.config = config
         
-        # Split data
+        if config is None:
+            try:
+                from .config import CONFIG
+                self.config = CONFIG
+            except ImportError:
+                print("Error: Config not provided and config.py not found.")
+                return
+        else:
+            self.config = config
+        
+        # Read and split data
+        if X is None or y is None:
+            import pandas as pd
+            train_path = self.config['dataset']['train_path']
+            if not os.path.exists(train_path):
+                print(f"Error: Training data file not found at {train_path}")
+                return # Or raise FileNotFoundError(f"Training data file not found at {train_path}")
+            df = pd.read_csv(train_path)
+            target = self.config['dataset']['target']
+            if target not in df.columns:
+                print(f"Error: Target column '{target}' not found in the dataset.")
+                return
+            X = df.drop(columns=[target])
+            y = df[[target]]
+
+        if isinstance(y, pd.Series):
+            y = y.to_frame()
+
         X_train, X_test, y_train, y_test = train_test_split(
             X, y, 
             test_size=self.config['dataset']['test_size'], 
