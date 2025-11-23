@@ -549,19 +549,34 @@ Write the code now.
 
         if self.eda_summary is None:
             self.eda_summary = self.consulteda_summary(df, target)
+
+
         
-        optuna_trials = 10                                   # Number of trials for Optuna hyperparameter optimization
-        optuna_n_jobs = 1                                   # Number of parallel Optuna jobs (studies running at once)
-        optuna_metric = 'rmse_safe'                         # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
-        model_n_jobs = int(os.cpu_count() / optuna_n_jobs)  # Number of threads per model (CPU cores / optuna jobs)
-        device = 'gpu'                                      # Device to use for training ('cpu' or 'gpu')
-        verbose = 2                                         # Verbosity level (0: silent, 1: minimal, 2: detailed)
-        models_enabled = {                                  # Master toggle to enable/disable specific models
-            'lightgbm': True,
+        
+        optuna_trials = 10                                      # Number of trials for Optuna hyperparameter optimization
+        optuna_n_jobs = 1                                       # Number of parallel Optuna jobs (studies running at once)
+        optuna_metric = 'rmse_safe'                             # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
+        
+        cpu_count = os.cpu_count()
+                               
+        model_n_jobs = int(cpu_count / optuna_n_jobs)           # Number of threads per model (CPU cores / optuna jobs)
+        
+        import torch
+        gpu_available = torch.cuda.is_available()
+        gpu_model = torch.cuda.get_device_name(0) if gpu_available else None
+        device = 'gpu' if gpu_available else 'cpu'              # Device to use for training ('cpu' or 'gpu')
+
+        print("GPU available: ", gpu_available)
+        print("GPU model: ", gpu_model)
+        print("CPU available cores: ", cpu_count)
+        
+        verbose = 2                                             # Verbosity level (0: silent, 1: minimal, 2: detailed)
+        models_enabled = {                                      # Master toggle to enable/disable specific models
+            'lightgbm': False,
             'xgboost': False,
             'catboost': False,
             'random_forest': False,
-            'pytorch': True,
+            'pytorch': False,
             'stacking': False,
             'voting': False,
         }
@@ -576,7 +591,7 @@ Write the code now.
                 'params': {                            # Fixed parameters (not optimized)
                     'verbose': verbose,
                     'objective': 'rmse',               # Learning objective (e.g., 'rmse', 'binary')
-                    'device': device,                  # Hardware acceleration ('cpu' or 'gpu')
+                    'device': device,                  # 'cpu', 'gpu'
                     'eval_metric': 'rmse',             # Metric used for early stopping
                     'num_threads': model_n_jobs        # Threads for model training
                 },
@@ -729,7 +744,11 @@ Write the code now.
         }
 
         models_prompt = f"""
-Your task is to enable/disable models and tune them for machine learning optimization with optuna for the dataset.
+Your task is to enable/disable models and tune parameters for machine learning optimization with optuna for analyzed dataset.
+
+GPU available: {gpu_available}
+GPU model: {gpu_model}
+CPU available cores: {cpu_count}
 
 The model_config default is (json format):
 ===
@@ -742,6 +761,7 @@ Based on the analysis, create the best configuration for mentioned earlier model
 **Constraints**:
 -   The config MUST be in json format.
 -   Do NOT remove / change / add any keys in json, only change values if you think it is needed.
+-   If possible for GPU use it, if not use CPU. values: 'cpu', 'gpu'
 -   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
