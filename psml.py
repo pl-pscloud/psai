@@ -466,7 +466,7 @@ class psML:
             params = self._get_model_params(model_name, trial)
             
             if self.config['dataset']['verbose'] > 0:
-                print(f'===============  {model_name} training - trial {trial.number}  =========================')
+                print(f'===============  {model_name} training - trial {trial.number} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
             if self.config['dataset']['verbose'] >= 2:
                 print(f'Optune used params:\n{params}')
 

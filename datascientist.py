@@ -249,6 +249,10 @@ Based on the summary above, provide a structured analysis:
 ### Explainability
 * Explain in details why you propose some steps, how it works and what user can expect from it.
 
+### CoT
+* Deep think about your analysis and possible best practices.
+* Provide a clear chain of thought (CoT) for your analysis.
+
 """
 
         # 4. Get Code from LLM
@@ -856,6 +860,10 @@ Based on the analysis, create the best configuration for mentioned earlier model
         
         if isinstance(models_config, dict):
             run_config['models'] = models_config
+
+        for model_name, model_config_details in models_config.items():
+            if model_config_details.get("enabled", False) is True:
+                print(f"Enabling model: {model_name}")
 
         # 7. Execution
         print("\n" + "="*40)
