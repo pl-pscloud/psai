@@ -222,6 +222,8 @@ class FTTransformer(nn.Module):
         
         # Numerical embeddings (linear layer to project to d_token)
         self.n_num_features = n_num_features
+        if self.n_num_features > 0:
+            self.num_embeddings_list = nn.ModuleList([nn.Linear(1, d_token) for _ in range(self.n_num_features)])
         
         # CLS token
         self.cls_token = nn.Parameter(torch.randn(1, 1, d_token))
@@ -264,10 +266,6 @@ class FTTransformer(nn.Module):
                 
         # Numerical embeddings
         if self.n_num_features > 0 and x_num is not None:
-             # We will use a ModuleList of Linear layers for numerical features
-             if not hasattr(self, 'num_embeddings_list'):
-                 self.num_embeddings_list = nn.ModuleList([nn.Linear(1, self.d_token) for _ in range(self.n_num_features)]).to(x_num.device)
-             
              for i in range(self.n_num_features):
                  tokens.append(self.num_embeddings_list[i](x_num[:, i].unsqueeze(-1)).unsqueeze(1))
 
@@ -659,11 +657,19 @@ class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
             num_features = X
 
         self.model.eval()
+        raw_preds_list = []
         with torch.no_grad():
-            cat_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device) if cat_features is not None else None
-            num_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
-            
-            raw_preds = self.model(cat_tensor, num_tensor).detach().cpu().numpy()
+            n_samples = X.shape[0]
+            for i in range(0, n_samples, self.batch_size):
+                batch_slice = slice(i, i + self.batch_size)
+                
+                cat_batch = torch.tensor(cat_features[batch_slice], dtype=torch.long).to(self.device) if cat_features is not None else None
+                num_batch = torch.tensor(num_features[batch_slice], dtype=torch.float32).to(self.device)
+                
+                batch_preds = self.model(cat_batch, num_batch)
+                raw_preds_list.append(batch_preds.detach().cpu())
+        
+        raw_preds = torch.cat(raw_preds_list).numpy()
 
         if self.loss == 'bcelogit':
             probs = 1 / (1 + np.exp(-raw_preds.flatten()))
@@ -725,9 +731,17 @@ class PyTorchRegressor(PyTorchBaseEstimator, RegressorMixin):
             num_features = X
 
         self.model.eval()
+        preds_list = []
         with torch.no_grad():
-            cat_tensor = torch.tensor(cat_features, dtype=torch.long).to(self.device) if cat_features is not None else None
-            num_tensor = torch.tensor(num_features, dtype=torch.float32).to(self.device)
-            
-            preds = self.model(cat_tensor, num_tensor).detach().cpu().numpy().flatten()
+            n_samples = X.shape[0]
+            for i in range(0, n_samples, self.batch_size):
+                batch_slice = slice(i, i + self.batch_size)
+                
+                cat_batch = torch.tensor(cat_features[batch_slice], dtype=torch.long).to(self.device) if cat_features is not None else None
+                num_batch = torch.tensor(num_features[batch_slice], dtype=torch.float32).to(self.device)
+                
+                batch_preds = self.model(cat_batch, num_batch)
+                preds_list.append(batch_preds.detach().cpu())
+                
+        preds = torch.cat(preds_list).numpy().flatten()
         return preds

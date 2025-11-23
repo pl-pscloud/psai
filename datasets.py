@@ -6,6 +6,7 @@ from scipy import stats
 import io
 import base64
 from matplotlib.backends.backend_pdf import PdfPages
+from IPython.display import Markdown, display
 
 class EDAReport:
     def __init__(self, df: pd.DataFrame, target: str = None):
@@ -162,6 +163,7 @@ class EDAReport:
 
         self._add_header("5. Correlation Analysis")
         corr = self.df[self.numerical_cols].corr()
+        self._add_table(corr, "Correlation Matrix")
         mask = np.triu(np.ones_like(corr, dtype=bool))
         
         fig = plt.figure(figsize=(12, 10))
@@ -182,6 +184,8 @@ class EDAReport:
             return
 
         self._add_header(f"6. Target Analysis: {self.target}")
+        
+        self._add_text(self._generate_target_summary_text())
         
         is_target_numeric = self.target in self.numerical_cols
         
@@ -217,6 +221,51 @@ class EDAReport:
                 plt.title(f'{col} Distribution by {self.target}')
                 self._add_plot(fig, f"{col} by Target")
                 plt.close(fig)
+
+    def _generate_target_summary_text(self):
+        """Generates a text summary of the target analysis."""
+        if not self.target or self.target not in self.df.columns:
+            return ""
+            
+        summary = []
+        
+        if self.target in self.numerical_cols:
+            desc = self.df[self.target].describe()
+            skew = self.df[self.target].skew()
+            kurt = self.df[self.target].kurtosis()
+            
+            summary.append(f"The target variable '**{self.target}**' is **numerical**.")
+            summary.append(f"It has a mean of **{desc['mean']:.2f}** and a median of **{desc['50%']:.2f}**, with a standard deviation of **{desc['std']:.2f}**.")
+            summary.append(f"The distribution ranges from **{desc['min']:.2f}** to **{desc['max']:.2f}**.")
+            summary.append(f"Skewness is **{skew:.2f}** and Kurtosis is **{kurt:.2f}**.")
+            
+            # Correlations
+            if len(self.numerical_cols) > 1:
+                corrs = self.df[self.numerical_cols].corrwith(self.df[self.target]).sort_values(ascending=False)
+                corrs = corrs.drop(self.target, errors='ignore')
+                top_pos = corrs.head(3)
+                top_neg = corrs.tail(3)
+                
+                summary.append("\n**Key Correlations:**")
+                if not top_pos.empty and top_pos.iloc[0] > 0:
+                    summary.append(f"- Top Positive: {', '.join([f'{k} ({v:.2f})' for k,v in top_pos.items() if v > 0])}")
+                if not top_neg.empty and top_neg.iloc[-1] < 0:
+                    summary.append(f"- Top Negative: {', '.join([f'{k} ({v:.2f})' for k,v in top_neg.items() if v < 0])}")
+
+        else:
+            counts = self.df[self.target].value_counts()
+            pcts = self.df[self.target].value_counts(normalize=True) * 100
+            unique_count = self.df[self.target].nunique()
+            
+            summary.append(f"The target variable '**{self.target}**' is **categorical** with **{unique_count}** unique values.")
+            summary.append("\n**Class Distribution:**")
+            for val, count in counts.items():
+                summary.append(f"- **{val}**: {count} instances ({pcts[val]:.2f}%)")
+                
+            top_class = counts.index[0]
+            summary.append(f"\nThe most frequent class is '**{top_class}**'.")
+            
+        return "\n".join(summary)
 
     def generate_full_report(self, save_html=None, save_pdf=None):
         """Generates the full EDA report.

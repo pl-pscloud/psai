@@ -1,7 +1,7 @@
 
 import os
 
-optuna_trials = 2                                   # Number of trials for Optuna hyperparameter optimization
+optuna_trials = 10                                   # Number of trials for Optuna hyperparameter optimization
 optuna_n_jobs = 1                                   # Number of parallel Optuna jobs (studies running at once)
 optuna_metric = 'rmse_safe'                         # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
 model_n_jobs = int(os.cpu_count() / optuna_n_jobs)  # Number of threads per model (CPU cores / optuna jobs)
@@ -33,32 +33,31 @@ DATASET_CONFIG = {
 # Preprocessor configuration for create_preprocessor function
 # Defines how different column types are handled in the pipeline
 PREPROCESSOR_CONFIG = {
-    'numerical': {                  # Standard numerical features
-        'imputer': 'mean',          # Strategy for missing values: 'mean', 'median', 'most_frequent'
-        'scaler': 'minmax',         # Scaling method: 'standard', 'minmax', 'robust', 'none'
+    "numerical": {
+        "imputer": "mean",
+        "scaler": "standard"
     },
-    'skewed': {                     # Numerical features with high skewness
-        'imputer': 'mean',  
-        'scaler': 'log',            # 'log' applies log1p transformation to reduce skew
+    "skewed": {
+        "imputer": "median",
+        "scaler": "log"
     },
-    'outlier': {                    # Numerical features with detected outliers
-        'imputer': 'mean',  
-        'scaler': 'log',            # Using log scaling can also help dampen outlier effects
+    "outlier": {
+        "imputer": "median",
+        "scaler": "log"
     },
-    'low_cardinality': {            # Categorical features with few unique values
-        'imputer': 'most_frequent',  
-        'encoder': 'onehot',        # 'onehot' encoding is efficient for low cardinality
-        'scaler': 'none',   
+    "low_cardinality": {
+        "imputer": "most_frequent",
+        "encoder": "onehot",
+        "scaler": "none"
     },
-    'high_cardinality': {           # Categorical features with many unique values
-        'imputer': 'most_frequent',  
-        'encoder': 'target_0.5',    # 'target_0.5' implies Target Encoding (often with smoothing)
-        'scaler': 'standard',       # Scaling encoded values (useful for linear models/NNs)
+    "high_cardinality": {
+        "imputer": "most_frequent",
+        "encoder": "target",
+        "scaler": "none"
     },
-    'dimension_reduction': {        # Options for reducing feature space
-        'enabled': False,           # Toggle dimension reduction on/off
-        'method': 'none',           # Method: 'pca', 'svd', 'none'
-    },
+    "dimension_reduction": {
+        "method": "none"
+    }
 }
 
 # Model configurations
@@ -122,7 +121,7 @@ MODELS_CONFIG = {
         'optuna_trials': optuna_trials,
         'optuna_timeout': 3600, # Time budget in seconds (1 hour)
         'optuna_metric': optuna_metric,
-        'optuna_n_jobs': optuna_n_jobs*5,
+        'optuna_n_jobs': optuna_n_jobs,
         'params': {
             'verbose': verbose,
             'objective': 'RMSE',
@@ -181,10 +180,11 @@ MODELS_CONFIG = {
             "objective": "mse",                     # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
             "device": device,                       # 'cpu', 'gpu'
             'verbose': verbose,
-            'num_threads': model_n_jobs if model_n_jobs > 0 else os.cpu_count(),
+            'embedding_info': ['time_of_day'],      #       
+            'num_threads': model_n_jobs,
         },
         'optuna_params': {                         # Hyperparameter search space for PyTorch models
-            'model_type': {'type': 'categorical', 'choices': ['mlp', 'ft_transformer']},        #['mlp', 'ft_transformer'] model type
+            'model_type': {'type': 'categorical', 'choices': ['mlp']},        #['mlp', 'ft_transformer'] model type
             'optimizer_name': {'type': 'categorical', 'choices': ['adam']},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
             'learning_rate': {'type': 'categorical', 'choices': [0.01]},                        #['0.01', '0.001'] learning rate
             'batch_size': {'type': 'categorical', 'choices': [64, 128, 256]},                   #['64', '128', '256'] batch size
@@ -192,28 +192,18 @@ MODELS_CONFIG = {
             'net': {'type': 'categorical', 'choices': [                                         
                 # MLP ReLU without batch or layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'relu', 'norm': None},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 64, 'activation': 'relu', 'norm': None},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 32, 'activation': 'relu', 'norm': None},
+                    {'type': 'dense', 'out_features': 16, 'activation': 'relu', 'norm': None},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
                 # MLP GELU with layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'gelu', 'norm': 'layer_norm'},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 64, 'activation': 'gelu', 'norm': 'layer_norm'},
-                    {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
                 ],
                 # MLP Swish/SILU with layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'swish', 'norm': 'layer_norm'},
-                    {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 64, 'activation': 'swish', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'},

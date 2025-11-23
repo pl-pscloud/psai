@@ -127,6 +127,19 @@ def create_preprocessor(config, X):
         ]
     )
 
+    # Add dimension reduction if method is specified and not 'none'
+    dim_reduction_config = config.get('dimension_reduction', {})
+    method = dim_reduction_config.get('method', 'none')
+    
+    if method != 'none':
+        dim_transformer = dim_config.get(method)
+        
+        if dim_transformer is not None:
+             preprocessor = Pipeline(steps=[
+                 ('preprocessor', preprocessor),
+                 ('dim_reduction', dim_transformer)
+             ])
+
     return preprocessor, columns
 
 def categorize_features(X):
