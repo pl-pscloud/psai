@@ -1,6 +1,9 @@
 from dotenv import load_dotenv
 from pathlib import Path
 
+from dotenv import load_dotenv
+from pathlib import Path
+
 # Load .env from the project root (assuming psai is one level deep)
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
@@ -12,6 +15,7 @@ import pandas as pd
 import numpy as np
 import re
 import random
+import copy
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
@@ -19,6 +23,8 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
 
 from psai.datasets import EDAReport
+from psai.config import CONFIG
+from psai.psml import psML
 
 class DataScientist:
     def __init__(self, model_name: str = "gemini-3-pro-preview"):
@@ -183,7 +189,7 @@ The behavior of the library is controlled by a central configuration dictionary 
         return str(result)
 
         
-    def eda_summary(self, df: pd.DataFrame, target: str) -> str:
+    def consulteda_summary(self, df: pd.DataFrame, target: str) -> str:
         """
         Generates a text summary of the EDA report to feed into the LLM.
         """
@@ -288,7 +294,7 @@ Based on the summary above, provide a structured analysis:
 
         # 2. Generate EDA Summary if needed
         if self.eda_summary is None:
-            self.eda_summary = self.eda_summary(df, target)
+            self.eda_summary = self.consulteda_summary(df, target)
 
         
         # 3. Prompt Engineering
@@ -328,9 +334,9 @@ Write the code now.
             if execute_code:
                 # 5. Execute Code
                 print("Executing generated code...")
-                local_scope = {'pd': pd, 'np': np}
+                local_scope = {'pd': pd, 'np': np, 'target': target} # Pass target to local scope
                 # Clean code (remove markdown blocks if the LLM ignored instructions)
-                code = re.sub(r'^```python\s*', '', code, flags=re.MULTILINE)
+                code = re.sub(r'^```python\s*', '', code_feature_engineering, flags=re.MULTILINE)
                 code = re.sub(r'^```\s*', '', code, flags=re.MULTILINE)
                 code = code.strip()
                 exec(code, {}, local_scope)
@@ -353,14 +359,15 @@ Write the code now.
 
     def consult_preprocessor(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = False):
         """
-        Analyzes the dataset and performs feature engineering using LLM-generated code.
+        Consults the LLM to generate a preprocessor configuration.
         
         Args:
             dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
             target (str): The name of the target column.
+            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
             
         Returns:
-            Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]: X (features) and y (target).
+            Union[Dict[str, Any], str]: The generated preprocessor configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
         # 1. Load Data
         if isinstance(dataset, str):
@@ -377,7 +384,7 @@ Write the code now.
             raise ValueError(f"Target column '{target}' not found in dataset.")
 
         if self.eda_summary is None:
-            self.eda_summary = self.eda_summary(df, target)
+            self.eda_summary = self.consulteda_summary(df, target)
         
         
 
@@ -516,14 +523,15 @@ Write the code now.
 
     def consult_models(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = False):
         """
-        Analyzes the dataset and performs feature engineering using LLM-generated code.
+        Consults the LLM to generate a models configuration.
         
         Args:
             dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
             target (str): The name of the target column.
+            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
             
         Returns:
-            Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]: X (features) and y (target).
+            Union[Dict[str, Any], str]: The generated models configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
         # 1. Load Data
         if isinstance(dataset, str):
@@ -540,7 +548,7 @@ Write the code now.
             raise ValueError(f"Target column '{target}' not found in dataset.")
 
         if self.eda_summary is None:
-            self.eda_summary = self.eda_summary(df, target)
+            self.eda_summary = self.consulteda_summary(df, target)
         
         optuna_trials = 10                                   # Number of trials for Optuna hyperparameter optimization
         optuna_n_jobs = 1                                   # Number of parallel Optuna jobs (studies running at once)
@@ -728,12 +736,12 @@ The model_config default is (json format):
 MODELS_CONFIG = {json.dumps(MODELS_CONFIG, indent=10)}
 ===
 
-Based on the analysis, create the best configuration for mentioned earlier models.
+Based on the analysis, create the best configuration for mentioned earlier models and analyzed dataset.
 
 
 **Constraints**:
 -   The config MUST be in json format.
--   Do NOT remove any keys in json, only change values if you think it is needed.
+-   Do NOT remove / change / add any keys in json, only change values if you think it is needed.
 -   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
@@ -763,3 +771,89 @@ Based on the analysis, create the best configuration for mentioned earlier model
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
             return code_models
+
+    def end_to_end_ml_process(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = True) -> psML:
+        """
+        End-to-end machine learning process.
+        
+        Args:
+            dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
+            target (str): The name of the target column.
+            execute_code (bool): Whether to execute the generated code.
+            
+        Returns:
+            psML: The trained psML object.
+        """
+        # 1. Load Data
+        if isinstance(dataset, str):
+            if os.path.exists(dataset):
+                df = pd.read_csv(dataset)
+            else:
+                raise FileNotFoundError(f"Dataset not found at {dataset}")
+        elif isinstance(dataset, pd.DataFrame):
+            df = dataset.copy()
+        else:
+            raise ValueError("Dataset must be a file path or a pandas DataFrame.")
+            
+        if target not in df.columns:
+            raise ValueError(f"Target column '{target}' not found in dataset.")
+
+        # 2. EDA
+        print("\n" + "="*40)
+        print(" STEP 1: Exploratory Data Analysis (EDA) ")
+        print("="*40 + "\n")
+        self.consulteda_summary(df, target)
+
+        # 3. Feature Engineering
+        print("\n" + "="*40)
+        print(" STEP 2: Feature Engineering ")
+        print("="*40 + "\n")
+        # consult_feature_engineering returns X, y
+        X, y = self.consult_feature_engineering(df, target, execute_code=execute_code)
+
+        # 4. Preprocessing
+        print("\n" + "="*40)
+        print(" STEP 3: Preprocessing Configuration ")
+        print("="*40 + "\n")
+        preprocessor_config = self.consult_preprocessor(df, target, execute_code=execute_code)
+
+        # 5. Model Selection
+        print("\n" + "="*40)
+        print(" STEP 4: Model Selection & Configuration ")
+        print("="*40 + "\n")
+        models_config = self.consult_models(df, target, execute_code=execute_code)
+
+        # 6. Configuration Merging
+        print("\n" + "="*40)
+        print(" STEP 5: Configuring PSML ")
+        print("="*40 + "\n")
+        
+        run_config = copy.deepcopy(CONFIG)
+        run_config['dataset']['target'] = target
+        
+        if isinstance(preprocessor_config, dict):
+             run_config['preprocessor'] = preprocessor_config
+        
+        if isinstance(models_config, dict):
+            run_config['models'] = models_config
+
+        # 7. Execution
+        print("\n" + "="*40)
+        print(" STEP 6: Model Training & Optimization ")
+        print("="*40 + "\n")
+        
+        model = psML(config=run_config, X=X, y=y)
+        
+        print("Optimizing models...")
+        model.optimize_all_models()
+        
+        print("Building Ensembles...")
+        model.build_ensemble_cv()
+        model.build_ensemble_final()
+        
+        print("\n" + "="*40)
+        print(" Final Scores ")
+        print("="*40 + "\n")
+        model.scores()
+        
+        return model
