@@ -7,11 +7,12 @@
 ## 🚀 Key Features
 
 *   **🔍 Automated EDA**: Generate professional, publication-ready Exploratory Data Analysis reports (HTML/PDF) with deep insights into distributions, correlations, and target relationships.
-*   **🤖 Multi-Model Intelligence**: First-class support for Gradient Boosting Machines (LightGBM, XGBoost, CatBoost) and Deep Learning (PyTorch Custom Architectures).
+*   **🤖 AI Data Scientist Agent**: Built-in LLM-powered agent (using Gemini) that can analyze your data, write feature engineering code, and suggest optimal configurations.
+*   **🧠 Multi-Model Intelligence**: First-class support for Gradient Boosting Machines (LightGBM, XGBoost, CatBoost) and Deep Learning (PyTorch Custom Architectures).
 *   **⚡ Auto-Optimization**: Integrated **Optuna** engine for intelligent, parallelized hyperparameter search with pruning strategies.
 *   **🏗️ Advanced Ensembling**: Built-in Stacking and Voting mechanisms to combine weak learners into robust meta-models.
 *   **⚙️ Configuration-Driven**: Entire pipeline behavior controlled via a central `config.py`, ensuring reproducibility and ease of experimentation.
-*   **🧠 Deep Learning Ready**: Includes implementations of modern tabular DL architectures like **FT-Transformer** and ResNet-style blocks (GELU, Residual Blocks).
+*   **🔥 Deep Learning Ready**: Includes implementations of modern tabular DL architectures like **FT-Transformer** and ResNet-style blocks (GELU, Residual Blocks).
 
 ---
 
@@ -21,9 +22,10 @@
 .
 ├── psai/
 │   ├── __init__.py
-|   ├── config.py           # Central configuration file
-│   ├── psml.py             # Core Pipeline: Training, Optimization, Ensembling
+│   ├── config.py           # Central configuration file
+│   ├── datascientist.py    # AI Agent for automated workflow
 │   ├── datasets.py         # Automated EDA & Data Reporting
+│   ├── psml.py             # Core Pipeline: Training, Optimization, Ensembling
 │   ├── pstorch.py          # PyTorch Models (MLP, FT-Transformer)
 │   └── scalersencoders.py  # Preprocessing Logic (Imputers, Scalers, Encoders)
 └── README.md               # Documentation
@@ -36,7 +38,62 @@
 Ensure you have the required dependencies installed. It is recommended to use a virtual environment.
 
 ```bash
-pip install pandas numpy scikit-learn lightgbm xgboost catboost torch optuna seaborn matplotlib
+pip install pandas numpy scikit-learn lightgbm xgboost catboost torch optuna seaborn matplotlib langchain-google-genai langgraph python-dotenv
+```
+
+*Note: You will need a Google Cloud API Key in your `.env` file (`GOOGLE_API_KEY`) to use the AI Agent.*
+
+---
+
+## 🤖 AI Data Scientist Agent
+
+The `DataScientist` agent leverages Large Language Models (LLMs) to automate complex data science tasks. It acts as a pair programmer that understands your data.
+
+### Capabilities
+*   **Automated EDA Analysis**: Generates a textual summary of the EDA report and provides a structured analysis (Data Quality, Feature Engineering, Preprocessing, Model Selection).
+*   **Intelligent Feature Engineering**: Writes and executes Python code to create new features based on data insights.
+*   **Dynamic Configuration**: Suggests optimal `PREPROCESSOR_CONFIG` and `MODELS_CONFIG` based on the dataset characteristics.
+
+### Usage Example
+
+```python
+from psai.datascientist import DataScientist
+import pandas as pd
+
+# Load Data
+df = pd.read_csv('data/train.csv')
+target = 'price'
+
+# Initialize the agent
+agent = DataScientist(model_name="gemini-1.5-pro-preview")
+
+# 1. Generate EDA Analysis & Summary
+agent.eda_summary(df, target=target)
+
+# 2. Consult for Feature Engineering (returns transformed X, y)
+# The agent writes code to create new features, drops duplicates, etc.
+X, y = agent.consult_feature_engineering(dataset=df, target=target, execute_code=True)
+
+# 3. Get Optimized Preprocessor Config
+# The agent suggests the best imputation, scaling, and encoding strategies
+preprocessor_config = agent.consult_preprocessor(dataset=df, target=target, execute_code=True)
+
+# 4. Get Optimized Model Config
+# The agent suggests which models to run and their search spaces
+model_config = agent.consult_models(dataset=df, target=target, execute_code=True)
+
+# 5. Run the Pipeline with Agent's Suggestions
+from psai.psml import psML
+from psai.config import CONFIG
+
+# Update global config with agent's suggestions
+CONFIG['preprocessor'] = preprocessor_config
+CONFIG['models'] = model_config
+
+# Initialize and Train
+ps = psML(config=CONFIG, X=X, y=y)
+ps.optimize_all_models()
+ps.scores()
 ```
 
 ---
@@ -128,7 +185,9 @@ Similar to Stacking but averages predictions (soft voting for classification).
 
 ---
 
-## 🛠️ Usage Guide
+## 🛠️ Manual Usage Guide
+
+If you prefer not to use the AI Agent, you can run the pipeline manually.
 
 ### Step 1: Automated EDA
 
