@@ -8,13 +8,13 @@ model_n_jobs = int(os.cpu_count() / optuna_n_jobs)  # Number of threads per mode
 device = 'gpu'                                      # Device to use for training ('cpu' or 'gpu')
 verbose = 2                                         # Verbosity level (0: silent, 1: minimal, 2: detailed)
 models_enabled = {                                  # Master toggle to enable/disable specific models
-    'lightgbm': True,
-    'xgboost': True,
-    'catboost': True,
-    'random_forest': True,
-    'pytorch': True,
-    'stacking': True,
-    'voting': True,
+    'lightgbm': False,
+    'xgboost': False,
+    'catboost': False,
+    'random_forest': False,
+    'pytorch': False,
+    'stacking': False,
+    'voting': False,
 }
 
 # Dataset configuration
@@ -73,7 +73,8 @@ MODELS_CONFIG = {
             'objective': 'rmse',               # Learning objective (e.g., 'rmse', 'binary')
             'device': device,                  # Hardware acceleration ('cpu' or 'gpu')
             'eval_metric': 'rmse',             # Metric used for early stopping
-            'num_threads': model_n_jobs        # Threads for model training
+            'num_threads': model_n_jobs,       # Threads for model training
+            
         },
         'optuna_params': {                    # Hyperparameter search space
             'boosting_type': {'type': 'categorical', 'choices': ['gbdt', 'goss']},
@@ -86,7 +87,8 @@ MODELS_CONFIG = {
             'min_split_gain': {'type': 'float', 'low': 1e-8, 'high': 1.0, 'log': True},
             'max_depth': {'type': 'int', 'low': 3, 'high': 20},
             'bagging_fraction': {'type': 'float', 'low': 0.4, 'high': 1.0},
-            'bagging_freq': {'type': 'int', 'low': 1, 'high': 7}
+            'bagging_freq': {'type': 'int', 'low': 1, 'high': 7},
+            'num_class': 10,                   # Number of classes for multiclass classification (if task_type is 'classification')
         }
     },
     'xgboost': {
@@ -225,7 +227,6 @@ MODELS_CONFIG = {
 }
 
 # Stacking configuration
-# Stacking configuration
 STACKING_CONFIG = {
     'cv_enabled': models_enabled['stacking'],   # Enable stacking during Cross-Validation
     'cv_folds': 5,                              # Folds for stacking CV (if not using prefit)
@@ -242,7 +243,6 @@ VOTING_CONFIG = {
     'prefit': True,                             # If True, uses already trained models.
 }
 
-# Output configuration
 # Output configuration
 OUTPUT_CONFIG = {
     'models_dir': 'models',         # Directory to save trained model artifacts

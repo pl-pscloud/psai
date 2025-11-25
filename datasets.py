@@ -7,6 +7,7 @@ import io
 import base64
 from matplotlib.backends.backend_pdf import PdfPages
 from IPython.display import Markdown, display
+import markdown
 
 class EDAReport:
     def __init__(self, df: pd.DataFrame, target: str = None):
@@ -308,6 +309,39 @@ class EDAReport:
                 display(item['content'])
 
 
+    def get_html_fragments(self, as_pdf=False):
+        """Generates a list of HTML fragments for the report content."""
+        fragments = []
+        for item in self.report_content:
+            if item['type'] == 'header':
+                fragments.append(f"<h{item['level']}>{item['content']}</h{item['level']}>")
+            elif item['type'] == 'text':
+                # Use markdown library for proper conversion
+                html_text = markdown.markdown(item['content'])
+                fragments.append(f"<div class='text-content'>{html_text}</div>")
+            elif item['type'] == 'table':
+                if item.get('title'):
+                    fragments.append(f"<h3>{item['title']}</h3>")
+                
+                table_html = item['content'].to_html(classes='table', border=0)
+                if not as_pdf:
+                    fragments.append(f"<div class='table-container'>{table_html}</div>")
+                else:
+                    fragments.append(table_html)
+                    
+            elif item['type'] == 'plot':
+                if item.get('title'):
+                    fragments.append(f"<h3>{item['title']}</h3>")
+                
+                # Convert plot to base64
+                buf = io.BytesIO()
+                item['content'].savefig(buf, format='png', bbox_inches='tight', dpi=100)
+                buf.seek(0)
+                img_str = base64.b64encode(buf.read()).decode('utf-8')
+                fragments.append(f"<div class='plot-container'><img src='data:image/png;base64,{img_str}'/></div>")
+                buf.close()
+        return fragments
+
     def _generate_html_content(self, as_pdf=False):
         """Generates the HTML content for the report."""
         
@@ -353,34 +387,7 @@ class EDAReport:
                 <h1>Exploratory Data Analysis Report</h1>
         """]
         
-        for item in self.report_content:
-            if item['type'] == 'header':
-                html_content.append(f"<h{item['level']}>{item['content']}</h{item['level']}>")
-            elif item['type'] == 'text':
-                # Simple markdown-like bold parsing
-                text = item['content'].replace('**', '<b>').replace('**', '</b>')
-                html_content.append(f"<div class='text-content'><p>{text}</p></div>")
-            elif item['type'] == 'table':
-                if item.get('title'):
-                    html_content.append(f"<h3>{item['title']}</h3>")
-                
-                table_html = item['content'].to_html(classes='table', border=0)
-                if not as_pdf:
-                    html_content.append(f"<div class='table-container'>{table_html}</div>")
-                else:
-                    html_content.append(table_html)
-                    
-            elif item['type'] == 'plot':
-                if item.get('title'):
-                    html_content.append(f"<h3>{item['title']}</h3>")
-                
-                # Convert plot to base64
-                buf = io.BytesIO()
-                item['content'].savefig(buf, format='png', bbox_inches='tight', dpi=100)
-                buf.seek(0)
-                img_str = base64.b64encode(buf.read()).decode('utf-8')
-                html_content.append(f"<div class='plot-container'><img src='data:image/png;base64,{img_str}'/></div>")
-                buf.close()
+        html_content.extend(self.get_html_fragments(as_pdf=as_pdf))
                 
         html_content.append("</div></body></html>")
         return '\n'.join(html_content)

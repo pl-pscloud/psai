@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 import numpy as np
+import json
 import pickle
 import os
 import lightgbm as lgb
@@ -127,12 +128,22 @@ class psML:
         self.preprocessor = preprocessor
         self.columns = columns
 
-    def scores(self):
+    def scores(self, return_json=False):
+        results = {}
         for model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']:
             if self.config['models'].get(model_name, {}).get('enabled', False):
                 cv_score = self.models.get(model_name, {}).get("cv_score", "N/A")
                 test_score = self.models.get(f"final_model_{model_name}", {}).get("score", "N/A")
-                print(f'{model_name.capitalize()} CV Score: {cv_score} , Test Score: {test_score}')
+                results[model_name] = {
+                    "cv_score": cv_score,
+                    "test_score": test_score
+                }
+                print(f'{model_name.capitalize()} CV Score: {cv_score}, Test Score: {test_score}')
+        
+        if return_json:
+            return json.dumps(results)
+
+        return results
 
     def rmsle_safe(self, y_true, y_pred):
         """
@@ -300,6 +311,9 @@ class psML:
                     'random_strength': self._suggest_param(trial, model_name, 'random_strength', 'float', low=1e-9, high=10, log=True),
                     'grow_policy': self._suggest_param(trial, model_name, 'grow_policy', 'categorical', choices=['SymmetricTree', 'Depthwise', 'Lossguide']),
                 })
+                if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
+                    print("GPU choose must switch Bootstrap type to Bayesian")
+                    params['bootstrap_type'] = 'Bayesian'
                 if params['bootstrap_type'] == 'Bernoulli':
                     params['subsample'] = self._suggest_param(trial, model_name, 'subsample', 'float', low=0.6, high=1.0)
                 if params['bootstrap_type'] == 'Bayesian':
@@ -466,7 +480,7 @@ class psML:
             params = self._get_model_params(model_name, trial)
             
             if self.config['dataset']['verbose'] > 0:
-                print(f'===============  {model_name} training - trial {trial.number} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
+                print(f'===============  {model_name} training - trial {trial.number+1} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
             if self.config['dataset']['verbose'] >= 2:
                 print(f'Optune used params:\n{params}')
 
@@ -626,23 +640,31 @@ class psML:
         return None
 
     def build_ensemble_cv(self):
-        if self.config['dataset']['verbose'] > 0:
+        if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['cv_enabled'] or self.config['voting']['cv_enabled']):
             print(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
         
         if self.config['stacking']['cv_enabled']:
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Build Stacking from CV models')
             self._build_stacking(use_cv_models=True)
         
         if self.config['voting']['cv_enabled']:
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Build Voting from CV models')
             self._build_voting(use_cv_models=True)
 
     def build_ensemble_final(self):
-        if self.config['dataset']['verbose'] > 0:
+        if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['final_enabled'] or self.config['voting']['final_enabled']):
             print(f'===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================')
         
         if self.config['stacking']['final_enabled']:
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Build Stacking from final models')
             self._build_stacking(use_cv_models=False)
         
         if self.config['voting']['final_enabled']:
+            if self.config['dataset']['verbose'] > 0:
+                print(f'Build Voting from final models')
             self._build_voting(use_cv_models=False)
 
     def _build_stacking(self, use_cv_models: bool):

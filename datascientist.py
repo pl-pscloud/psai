@@ -1,9 +1,6 @@
 from dotenv import load_dotenv
 from pathlib import Path
 
-from dotenv import load_dotenv
-from pathlib import Path
-
 # Load .env from the project root (assuming psai is one level deep)
 env_path = Path(__file__).parent.parent / '.env'
 load_dotenv(dotenv_path=env_path)
@@ -21,13 +18,15 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
 from langgraph.prebuilt import create_react_agent
 from langgraph.checkpoint.memory import InMemorySaver
+import markdown
+import html
 
 from psai.datasets import EDAReport
 from psai.config import CONFIG
 from psai.psml import psML
 
 class DataScientist:
-    def __init__(self, model_name: str = "gemini-3-pro-preview"):
+    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview"):
         """
         Initialize the DataScientist agent.
         
@@ -37,9 +36,20 @@ class DataScientist:
         api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
-        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0, google_api_key=api_key)
+        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0.2, google_api_key=api_key)
         self.llm_memory = InMemorySaver()
+        self.df = df
+        self.target = target
+        self.X = None
+        self.y = None
         self.eda_report = None
+        self.ai_eda_summary = None
+        self.ai_preprocessor = None
+        self.ai_feature_engineering_code = None
+        self.ai_models_config = None
+        self.ai_ensamble_config = None
+        self.ai_results_analysis = None
+        self.psml = None
         self.session = random.randint(100000, 999999)
         self.config = {"configurable": {"thread_id": self.session}}
         self.system_prompt = """
@@ -188,13 +198,28 @@ The behavior of the library is controlled by a central configuration dictionary 
             pass
         return str(result)
 
+    def _analyze(self, config: Dict[str, Any]):
+
+        if self.X is None or self.y is None:
+            raise ValueError("X and y must be set before calling _analyze.")
         
-    def consulteda_summary(self, df: pd.DataFrame, target: str) -> str:
+        self.psml = psML(config=config, X=self.X, y=self.y)
+        
+        print("Optimizing models...")
+        self.psml.optimize_all_models()
+        
+        print("Building Ensembles...")
+        self.psml.build_ensemble_cv()
+        self.psml.build_ensemble_final()
+
+        
+    def consult_eda(self) -> str:
         """
         Generates a text summary of the EDA report to feed into the LLM.
         """
         print("Generating EDA summary...")
-        report = EDAReport(df, target)
+        report = EDAReport(self.df, self.target)
+        self.eda_report = report # Store report for later use
         # Run analyses to populate report_content
         report.basic_info()
         report.numerical_analysis()
@@ -220,7 +245,7 @@ The behavior of the library is controlled by a central configuration dictionary 
         eda_prompt = f"""
 Your task is to make comprehensive, professional textual analyse of results of EDA.
 
-The target column is: '{target}'
+The target column is: '{self.target}'
 
 Here is an analysis of the dataset:
 {summary}
@@ -258,19 +283,17 @@ Based on the summary above, provide a structured analysis:
         # 4. Get Code from LLM
         print("Consulting LLM for EDA...")
         response = self.agent.invoke({"messages": [HumanMessage(content=eda_prompt)]}, config=self.config)
-        eda_analysis =  self._final_message_text(response)
+        self.ai_eda_summary =  self._final_message_text(response)
         
         print("-" * 40)
         print("Generated EDA Analysis:")
         print("-" * 40)
-        print(eda_analysis)
+        print(self.ai_eda_summary)
         print("-" * 40)
-
             
-        self.eda_summary = eda_analysis.join("\n").join(summary)
         print("EDA summary generated.")
 
-    def consult_feature_engineering(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = False):
+    def consult_feature_engineering(self, execute_code: bool = False):
         """
         Analyzes the dataset and performs feature engineering using LLM-generated code.
         
@@ -282,23 +305,13 @@ Based on the summary above, provide a structured analysis:
             Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]: X (features) and y (target).
         """
         # 1. Load Data
-        if isinstance(dataset, str):
-            if os.path.exists(dataset):
-                df = pd.read_csv(dataset)
-            else:
-                raise FileNotFoundError(f"Dataset not found at {dataset}")
-        elif isinstance(dataset, pd.DataFrame):
-            df = dataset.copy()
-        else:
-            raise ValueError("Dataset must be a file path or a pandas DataFrame.")
-            
-        if target not in df.columns:
-            raise ValueError(f"Target column '{target}' not found in dataset.")
+        if self.target not in self.df.columns:
+            raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
 
         # 2. Generate EDA Summary if needed
-        if self.eda_summary is None:
-            self.eda_summary = self.consulteda_summary(df, target)
+        if self.ai_eda_summary is None:
+            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
         
         # 3. Prompt Engineering
@@ -335,15 +348,16 @@ Write the code now.
                 
         
         try:
+            self.ai_feature_engineering_code = code_feature_engineering
             if execute_code:
                 # 5. Execute Code
                 print("Executing generated code...")
-                local_scope = {'pd': pd, 'np': np, 'target': target} # Pass target to local scope
+                local_scope = {'pd': pd, 'np': np, 'target': self.target} # Pass target to local scope
                 # Clean code (remove markdown blocks if the LLM ignored instructions)
                 code = re.sub(r'^```python\s*', '', code_feature_engineering, flags=re.MULTILINE)
                 code = re.sub(r'^```\s*', '', code, flags=re.MULTILINE)
                 code = code.strip()
-                exec(code, {}, local_scope)
+                exec(code, local_scope)
             else:
                 print("Code not executed. Returning code instead.")
                 return code_feature_engineering
@@ -352,16 +366,16 @@ Write the code now.
                 raise ValueError("The generated code did not define a 'feature_engineering' function.")
             
             feature_engineering_func = local_scope['feature_engineering']
-            X, y = feature_engineering_func(df)
+            self.X, self.y = feature_engineering_func(self.df)
             
-            print(f"Feature Engineering complete. X shape: {X.shape}, y shape: {y.shape}")
-            return X, y
+            print(f"Feature Engineering complete. X shape: {self.X.shape}, y shape: {self.y.shape}")
+            return self.X, self.y
             
         except Exception as e:
             print(f"Error executing generated code: {e}")
             raise
 
-    def consult_preprocessor(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = False):
+    def consult_preprocessor(self, execute_code: bool = False):
         """
         Consults the LLM to generate a preprocessor configuration.
         
@@ -374,21 +388,11 @@ Write the code now.
             Union[Dict[str, Any], str]: The generated preprocessor configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
         # 1. Load Data
-        if isinstance(dataset, str):
-            if os.path.exists(dataset):
-                df = pd.read_csv(dataset)
-            else:
-                raise FileNotFoundError(f"Dataset not found at {dataset}")
-        elif isinstance(dataset, pd.DataFrame):
-            df = dataset.copy()
-        else:
-            raise ValueError("Dataset must be a file path or a pandas DataFrame.")
-            
-        if target not in df.columns:
-            raise ValueError(f"Target column '{target}' not found in dataset.")
+        if self.target not in self.df.columns:
+            raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
-        if self.eda_summary is None:
-            self.eda_summary = self.consulteda_summary(df, target)
+        if self.ai_eda_summary is None:
+            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
         
         
 
@@ -513,9 +517,10 @@ Write the code now.
         print("-" * 40)
         
         try:
+            self.ai_preprocessor = json.loads(code_preprocessor)
             if execute_code:
                 print("Executing generated config to create preprocessor...")
-                return json.loads(code_preprocessor)
+                return self.ai_preprocessor
             else:
                 print("Code not executed. Returning preprocessor config (dict).")
                 return code_preprocessor
@@ -525,36 +530,26 @@ Write the code now.
             # If parsing fails, return the raw string so the user can see what happened
             return code_preprocessor
 
-    def consult_models(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = False):
+    def consult_models(self, execute_code: bool = False):
         """
         Consults the LLM to generate a models configuration.
         
         Args:
-            dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
+            df (pd.DataFrame): A pandas DataFrame.
             target (str): The name of the target column.
             execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
             
         Returns:
             Union[Dict[str, Any], str]: The generated models configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
-        # 1. Load Data
-        if isinstance(dataset, str):
-            if os.path.exists(dataset):
-                df = pd.read_csv(dataset)
-            else:
-                raise FileNotFoundError(f"Dataset not found at {dataset}")
-        elif isinstance(dataset, pd.DataFrame):
-            df = dataset.copy()
-        else:
-            raise ValueError("Dataset must be a file path or a pandas DataFrame.")
-            
-        if target not in df.columns:
-            raise ValueError(f"Target column '{target}' not found in dataset.")
 
-        if self.eda_summary is None:
-            self.eda_summary = self.consulteda_summary(df, target)
+        if self.target not in self.df.columns:
+            raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
+        if self.ai_eda_summary is None:
+            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
+        from psai.config import CONFIG as MODELS_CONFIG
         
         
         optuna_trials = 10                                      # Number of trials for Optuna hyperparameter optimization
@@ -573,6 +568,7 @@ Write the code now.
         print("GPU available: ", gpu_available)
         print("GPU model: ", gpu_model)
         print("CPU available cores: ", cpu_count)
+        print("\n")
         
         verbose = 2                                             # Verbosity level (0: silent, 1: minimal, 2: detailed)
         models_enabled = {                                      # Master toggle to enable/disable specific models
@@ -585,167 +581,7 @@ Write the code now.
             'voting': False,
         }
 
-        MODELS_CONFIG = {
-            'lightgbm': {
-                'enabled': models_enabled['lightgbm'], # Enable/Disable LightGBM
-                'optuna_trials': optuna_trials,        # Number of hyperparameter search trials
-                'optuna_timeout': 3600,                # Max time (seconds) for optimization
-                'optuna_metric': optuna_metric,        # Metric to optimize
-                'optuna_n_jobs': optuna_n_jobs,        # Parallel jobs for Optuna
-                'params': {                            # Fixed parameters (not optimized)
-                    'verbose': verbose,
-                    'objective': 'rmse',               # Learning objective (e.g., 'rmse', 'binary')
-                    'device': device,                  # 'cpu', 'gpu'
-                    'eval_metric': 'rmse',             # Metric used for early stopping
-                    'num_threads': model_n_jobs        # Threads for model training
-                },
-                'optuna_params': {                    # Hyperparameter search space
-                    'boosting_type': {'type': 'categorical', 'choices': ['gbdt', 'goss']},
-                    'lambda_l1': {'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True},
-                    'lambda_l2': {'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True},
-                    'num_leaves': {'type': 'int', 'low': 20, 'high': 300},
-                    'feature_fraction': {'type': 'float', 'low': 0.4, 'high': 1.0},
-                    'min_child_samples': {'type': 'int', 'low': 5, 'high': 100},
-                    'learning_rate': {'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True},
-                    'min_split_gain': {'type': 'float', 'low': 1e-8, 'high': 1.0, 'log': True},
-                    'max_depth': {'type': 'int', 'low': 3, 'high': 20},
-                    'bagging_fraction': {'type': 'float', 'low': 0.4, 'high': 1.0},
-                    'bagging_freq': {'type': 'int', 'low': 1, 'high': 7}
-                }
-            },
-            'xgboost': {
-                'enabled': models_enabled['xgboost'],
-                'optuna_trials': optuna_trials,
-                'optuna_timeout': 3600,
-                'optuna_metric': optuna_metric,
-                'optuna_n_jobs': optuna_n_jobs,
-                'params': {
-                    'verbose': verbose,
-                    'objective': 'reg:squarederror',
-                    'device': device,
-                    'eval_metric': 'rmse',
-                    'nthread': model_n_jobs
-                },
-                'optuna_params': {                    # Hyperparameter search space
-                    'booster': {'type': 'categorical', 'choices': ['gbtree']},
-                    'max_depth': {'type': 'int', 'low': 3, 'high': 20},
-                    'learning_rate': {'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True},
-                    'n_estimators': {'type': 'int', 'low': 500, 'high': 3000},
-                    'subsample': {'type': 'float', 'low': 0, 'high': 1},
-                    'lambda': {'type': 'float', 'low': 1e-4, 'high': 5, 'log': True},
-                    'gamma': {'type': 'float', 'low': 1e-4, 'high': 5, 'log': True},
-                    'alpha': {'type': 'float', 'low': 1e-4, 'high': 5, 'log': True},
-                    'min_child_weight': {'type': 'categorical', 'choices': [0.5, 1, 3, 5]},
-                    'colsample_bytree': {'type': 'float', 'low': 0.5, 'high': 1},
-                    'colsample_bylevel': {'type': 'float', 'low': 0.5, 'high': 1}
-                }
-            },
-            'catboost': {
-                'enabled': models_enabled['catboost'],
-                'optuna_trials': optuna_trials,
-                'optuna_timeout': 3600, # Time budget in seconds (1 hour)
-                'optuna_metric': optuna_metric,
-                'optuna_n_jobs': optuna_n_jobs,
-                'params': {
-                    'verbose': verbose,
-                    'objective': 'RMSE',
-                    'device': device,
-                    'eval_metric': 'RMSE',
-                    'thread_count': model_n_jobs
-                },
-                'optuna_params': {                    # Hyperparameter search space
-                    'n_estimators': {'type': 'int', 'low': 100, 'high': 3000},
-                    'learning_rate': {'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True},
-                    'depth': {'type': 'int', 'low': 4, 'high': 10},
-                    'l2_leaf_reg': {'type': 'float', 'low': 1e-3, 'high': 10.0, 'log': True},
-                    'border_count': {'type': 'int', 'low': 32, 'high': 128},
-                    'bootstrap_type': {'type': 'categorical', 'choices': ['Bayesian', 'Bernoulli', 'MVS']},
-                    'feature_border_type': {'type': 'categorical', 'choices': ['Median', 'Uniform', 'GreedyMinEntropy']},
-                    'leaf_estimation_iterations': {'type': 'int', 'low': 1, 'high': 10},
-                    'min_data_in_leaf': {'type': 'int', 'low': 1, 'high': 30},
-                    'random_strength': {'type': 'float', 'low': 1e-9, 'high': 10, 'log': True},
-                    'grow_policy': {'type': 'categorical', 'choices': ['SymmetricTree', 'Depthwise', 'Lossguide']},
-                    'subsample': {'type': 'float', 'low': 0.6, 'high': 1.0},
-                    'bagging_temperature': {'type': 'float', 'low': 0, 'high': 1},
-                    'max_leaves': {'type': 'int', 'low': 2, 'high': 32}
-                }
-            },
-            'random_forest': {
-                'enabled': models_enabled['random_forest'], # Enable/Disable Random Forest models
-                'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
-                'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-                'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
-                'optuna_n_jobs': model_n_jobs,              # Number of jobs to run in parallel
-                'params': {
-                    'verbose': verbose,
-                    'n_jobs': model_n_jobs
-                },
-                'optuna_params': {                    # Hyperparameter search space for RF
-                    'n_estimators': {'type': 'int', 'low': 100, 'high': 1000},
-                    'max_depth': {'type': 'int', 'low': 3, 'high': 30},
-                    'min_samples_split': {'type': 'int', 'low': 2, 'high': 20},
-                    'min_samples_leaf': {'type': 'int', 'low': 1, 'high': 10},
-                    'max_features': {'type': 'categorical', 'choices': ['sqrt', 'log2', None]},
-                    'bootstrap': {'type': 'categorical', 'choices': [True, False]},
-                    'max_samples': {'type': 'float', 'low': 0.5, 'high': 1.0}
-                }
-            },
-            'pytorch': {
-                'enabled': models_enabled['pytorch'],       # Enable/Disable PyTorch models
-                'optuna_trials': optuna_trials/2,             # Number of trials for Optuna hyperparameter optimization
-                'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-                'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
-                'optuna_n_jobs': 1,                         # Number of jobs to run in parallel
-                'params': {
-                    "train_max_epochs": 50,                 # Number of epochs to train for
-                    "train_patience": 5,                    # Number of epochs to wait before early stopping
-                    "final_max_epochs": 1000,               # Number of epochs to train for
-                    "final_patience": 20,                   # Number of epochs to wait before early stopping
-                    "objective": "mse",                     # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
-                    "device": device,                       # 'cpu', 'gpu'
-                    'verbose': verbose,
-                    'num_threads': model_n_jobs,
-                },
-                'optuna_params': {                         # Hyperparameter search space for PyTorch models
-                    'model_type': {'type': 'categorical', 'choices': ['mlp','ft_transformer']},        #['mlp', 'ft_transformer'] model type
-                    'optimizer_name': {'type': 'categorical', 'choices': ['adam']},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
-                    'learning_rate': {'type': 'categorical', 'choices': [0.01]},                        #['0.01', '0.001'] learning rate
-                    'batch_size': {'type': 'categorical', 'choices': [64, 128, 256]},                   #['64', '128', '256'] batch size
-                    'weight_init': {'type': 'categorical', 'choices': ['default']},                     #['default', 'xavier', 'kaiming'] weight initialization
-                    'net': {'type': 'categorical', 'choices': [                                         
-                        # MLP ReLU without batch or layer norm
-                        [
-                            {'type': 'dense', 'out_features': 16, 'activation': 'relu', 'norm': None},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
-                        ],
-                        # MLP GELU with layer norm
-                        [
-                            {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
-                        ],
-                        # MLP Swish/SILU with layer norm
-                        [
-                            {'type': 'dense', 'out_features': 64, 'activation': 'swish', 'norm': 'layer_norm'},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
-                        ],
-
-                    ]},
-                    # FT-Transformer Params
-                    'd_token': {'type': 'categorical', 'choices': [64, 128, 192, 256]},
-                    'n_layers': {'type': 'int', 'low': 1, 'high': 4},
-                    'n_heads': {'type': 'categorical', 'choices': [4, 8]},
-                    'd_ffn_factor': {'type': 'float', 'low': 1.0, 'high': 2.0},
-                    'attention_dropout': {'type': 'float', 'low': 0.0, 'high': 0.3},
-                    'ffn_dropout': {'type': 'float', 'low': 0.0, 'high': 0.3},
-                    'residual_dropout': {'type': 'float', 'low': 0.0, 'high': 0.2}
-                }
-            }
-        }
+        
 
         models_prompt = f"""
 Your task is to enable/disable models and tune parameters for machine learning optimization with optuna for analyzed dataset.
@@ -756,7 +592,7 @@ CPU available cores: {cpu_count}
 
 The model_config default is (json format):
 ===
-MODELS_CONFIG = {json.dumps(MODELS_CONFIG, indent=10)}
+MODELS_CONFIG = {json.dumps(MODELS_CONFIG['models'], indent=10)}
 ===
 
 Based on the analysis, create the best configuration for mentioned earlier models and analyzed dataset.
@@ -764,8 +600,11 @@ Based on the analysis, create the best configuration for mentioned earlier model
 
 **Constraints**:
 -   The config MUST be in json format.
--   Do NOT remove / change / add any keys in json, only change values if you think it is needed.
+-   Important: Do NOT remove / change any keys in json.
+-   Only change values if you think it is needed.
 -   If possible for GPU use it, if not use CPU. values: 'cpu', 'gpu'
+-   When set params for catboost if choose device = 'gpu' use bootstrap_type = 'Bayesian' or 'Bernoulli'
+-   When multiclass are selected for lightgbm set num_class = x (where x is number of classes)
 -   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
@@ -784,9 +623,10 @@ Based on the analysis, create the best configuration for mentioned earlier model
         print("-" * 40)
         
         try:
+            self.ai_models_config = json.loads(code_models)
             if execute_code:
                 print("Executing generated config to create models...")
-                return json.loads(code_models)
+                return self.ai_models_config
             else:
                 print("Code not executed. Returning models config (dict).")
                 return code_models
@@ -796,29 +636,201 @@ Based on the analysis, create the best configuration for mentioned earlier model
             # If parsing fails, return the raw string so the user can see what happened
             return code_models
 
-    def end_to_end_ml_process(self, dataset: Union[str, pd.DataFrame], target: str, execute_code: bool = True) -> psML:
+
+
+    def consult_ensamble(self, execute_code: bool = False):
+        """
+        Consults the LLM to generate a ensamble configuration stacking / voting.
+        
+        Args:
+            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
+            
+        Returns:
+            Union[Dict[str, Any], str]: The generated models configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
+        """
+
+        if self.df is None:
+            raise ValueError("Dataset must be loaded before consulting ensamble.")
+        
+        if self.ai_eda_summary is None:
+            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
+
+        from psai.config import CONFIG as MODELS_CONFIG
+    
+        # Stacking configuration
+        STACKING_CONFIG = {
+            'cv_enabled': False,                        # Enable stacking for Cross-Validation models
+            'cv_folds': 5,                              # Folds for stacking CV (if not using prefit)
+            'final_enabled': False,                     # Enable stacking for the final model
+            'meta_model': 'lightgbm',                   # The model used to aggregate base model predictions
+            'use_features': True,                       # If True, feeds original features + predictions to meta-model
+            'prefit': True,                             # If True, uses existing trained models (faster). If False, retrains.
+        }
+
+        VOTING_CONFIG = {
+            'cv_enabled': False,                        # Enable voting ensemble for Cross-Validation models
+            'final_enabled': False,                     # Enable voting ensemble for the final model
+            'use_features': True,                       # (Note: Voting usually just averages predictions, this flag might be custom logic)
+            'prefit': True,                             # If True, uses already trained models.
+        }
+
+        
+
+        ensamble_prompt = f"""
+Your task is to enable/disable ensamble models (stacking / voting) and tune parameters for ensamble models for analyzed dataset.
+
+The ensamble config default is (json format):
+===
+ENSAMBLE_CONFIG = {{
+    'stacking': { json.dumps(STACKING_CONFIG, indent=10) },
+    'voting': { json.dumps(VOTING_CONFIG, indent=10) }
+}}
+
+Params Stacking:
+'cv_enabled': bool,          # Enable stacking for Cross-Validation models
+'cv_folds': int,             # Folds for stacking CV (if not using prefit)
+'final_enabled': bool,       # Enable stacking for the final model
+'meta_model': str,           # The model used to aggregate base model predictions
+'use_features': bool,        # If True, feeds original features + predictions to meta-model
+'prefit': bool,              # If True, uses existing trained models (faster). If False, retrains.
+
+Params Voting:
+'cv_enabled': bool,          # Enable voting ensemble for Cross-Validation models
+'final_enabled': bool,       # Enable voting ensemble for the final model
+'use_features': bool,        # (Note: Voting usually just averages predictions, this flag might be custom logic)
+'prefit': bool,              # If True, uses already trained models.
+
+
+===
+
+Based on the analysis, create the best configuration for mentioned earlier ensamble models and analyzed dataset.
+
+**Constraints**:
+-   The config MUST be in json format.
+-   Do NOT remove / change / add any keys in json, only change values if you think it is needed.
+-   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
+-   Handle potential errors gracefully if possible.
+"""
+        
+        # 4. Get Code from LLM
+        print("Consulting LLM for Ensamble Config...")
+        response = self.agent.invoke({"messages": [HumanMessage(content=ensamble_prompt)]}, config=self.config)
+        ensamble_config =  self._final_message_text(response)       
+        
+        
+        
+        print("-" * 40)
+        print("Generated Ensamble Config:")
+        print("-" * 40)
+        print(ensamble_config)
+        print("-" * 40)
+        
+        try:
+            self.ai_ensamble_config = json.loads(ensamble_config)
+            if execute_code:
+                print("Executing generated config to create models...")
+                return self.ai_ensamble_config
+            else:
+                print("Code not executed. Returning models config (dict).")
+                return ensamble_config
+            
+        except Exception as e:
+            print(f"Error parsing or executing generated code: {e}")
+            # If parsing fails, return the raw string so the user can see what happened
+            return ensamble_config
+
+
+
+    def consult_results(self):
+        """
+        Consults the LLM to analyze the results of the models.
+        """
+        # 1. Check if PSML is None
+        if self.psml is None:
+            raise ValueError(f"PSML is None.")
+        
+        if self.ai_models_config is None:
+            raise ValueError(f"AI models config is None.")
+
+        if self.df is None:
+            raise ValueError(f"Dataset is None.")           
+
+        if self.target is None:
+            raise ValueError(f"Target is None.")           
+
+        if self.ai_preprocessor is None:
+            raise ValueError(f"AI preprocessor is None.")
+
+        if self.ai_eda_summary is None:
+            raise ValueError(f"AI EDA summary is None.")
+
+
+        model_scores = self.psml.scores()
+        if model_scores:
+            try:
+                scores_display = json.dumps(model_scores, indent=4)
+            except TypeError:
+                scores_display = str(model_scores)
+        else:
+            scores_display = "No scores available for analysis."
+
+        results_prompt = f"""
+Your task is to make comprehensive analysis of tuned models and their results of machine learning optimization with optuna.
+
+Explain how to read that scores, explain what is the best model and why.
+
+All scores are calculated with CrossValidation inside loop of optuna.
+
+Scores for models - metrics from models config:
+===
+{scores_display}
+===
+
+**Constraints**:
+-   Handle potential errors gracefully if possible.
+"""
+        
+        # 4. Get Code from LLM
+        print("Consulting LLM for results analysis...")
+        response = self.agent.invoke({"messages": [HumanMessage(content=results_prompt)]}, config=self.config)
+        ai_results =  self._final_message_text(response)       
+        
+        
+        
+        print("-" * 40)
+        print("Generated Analysis:")
+        print("-" * 40)
+        print(self.ai_results_analysis)
+        print("-" * 40)
+        
+        try:
+            self.ai_results_analysis = ai_results
+            if self.ai_results_analysis:
+                print("Analysis executed. Returning analysis (str).")
+                return self.ai_results_analysis
+            else:
+                print("Analysis not executed. Returning analysis (str).")
+                return self.ai_results_analysis
+            
+        except Exception as e:
+            print(f"Error parsing or executing generated analysis: {e}")
+            # If parsing fails, return the raw string so the user can see what happened
+            return self.ai_results_analysis
+
+
+    def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = False, report_filename: str = "report.html") -> psML:
         """
         End-to-end machine learning process.
         
         Args:
-            dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
-            target (str): The name of the target column.
             execute_code (bool): Whether to execute the generated code.
+            save_report (bool): Whether to save the report.
+            report_filename (str): The name of the report file.
             
         Returns:
             psML: The trained psML object.
         """
-        # 1. Load Data
-        if isinstance(dataset, str):
-            if os.path.exists(dataset):
-                df = pd.read_csv(dataset)
-            else:
-                raise FileNotFoundError(f"Dataset not found at {dataset}")
-        elif isinstance(dataset, pd.DataFrame):
-            df = dataset.copy()
-        else:
-            raise ValueError("Dataset must be a file path or a pandas DataFrame.")
-            
+
         if target not in df.columns:
             raise ValueError(f"Target column '{target}' not found in dataset.")
 
@@ -826,62 +838,396 @@ Based on the analysis, create the best configuration for mentioned earlier model
         print("\n" + "="*40)
         print(" STEP 1: Exploratory Data Analysis (EDA) ")
         print("="*40 + "\n")
-        self.consulteda_summary(df, target)
+        self.consult_eda()
 
         # 3. Feature Engineering
         print("\n" + "="*40)
         print(" STEP 2: Feature Engineering ")
         print("="*40 + "\n")
         # consult_feature_engineering returns X, y
-        X, y = self.consult_feature_engineering(df, target, execute_code=execute_code)
+        self.X, self.y = self.consult_feature_engineering(execute_code=execute_code)
 
         # 4. Preprocessing
         print("\n" + "="*40)
         print(" STEP 3: Preprocessing Configuration ")
         print("="*40 + "\n")
-        preprocessor_config = self.consult_preprocessor(df, target, execute_code=execute_code)
+        self.ai_preprocessor = self.consult_preprocessor(execute_code=execute_code)
 
         # 5. Model Selection
         print("\n" + "="*40)
         print(" STEP 4: Model Selection & Configuration ")
         print("="*40 + "\n")
-        models_config = self.consult_models(df, target, execute_code=execute_code)
+        self.ai_models_config = self.consult_models(execute_code=execute_code)
+
+        # 5. Ensamble Configuration
+        print("\n" + "="*40)
+        print(" STEP 5: Ensamble Configuration ")
+        print("="*40 + "\n")
+        self.ai_ensamble_config = self.consult_ensamble(execute_code=execute_code)
 
         # 6. Configuration Merging
         print("\n" + "="*40)
-        print(" STEP 5: Configuring PSML ")
+        print(" STEP 6: Configuring PSML ")
         print("="*40 + "\n")
         
         run_config = copy.deepcopy(CONFIG)
-        run_config['dataset']['target'] = target
+        run_config['dataset']['target'] = self.target
         
-        if isinstance(preprocessor_config, dict):
-             run_config['preprocessor'] = preprocessor_config
+        if isinstance(self.ai_preprocessor, dict):
+             run_config['preprocessor'] = self.ai_preprocessor
         
-        if isinstance(models_config, dict):
-            run_config['models'] = models_config
+        if isinstance(self.ai_models_config, dict):
+            run_config['models'] = self.ai_models_config
 
-        for model_name, model_config_details in models_config.items():
+        if isinstance(self.ai_ensamble_config, dict):
+            run_config['stacking'] = self.ai_ensamble_config['stacking']
+            run_config['voting'] = self.ai_ensamble_config['voting']
+
+        for model_name, model_config_details in self.ai_models_config.items():
             if model_config_details.get("enabled", False) is True:
                 print(f"Enabling model: {model_name}")
 
         # 7. Execution
         print("\n" + "="*40)
-        print(" STEP 6: Model Training & Optimization ")
+        print(" STEP 7: Model Training & Optimization ")
         print("="*40 + "\n")
-        
-        model = psML(config=run_config, X=X, y=y)
-        
-        print("Optimizing models...")
-        model.optimize_all_models()
-        
-        print("Building Ensembles...")
-        model.build_ensemble_cv()
-        model.build_ensemble_final()
+        self._analyze(run_config)
         
         print("\n" + "="*40)
         print(" Final Scores ")
         print("="*40 + "\n")
-        model.scores()
+        self.psml.scores()
+
+        # 8. Results
+        print("\n" + "="*40)
+        print(" STEP 8: Results ")
+        print("="*40 + "\n")
+        self.consult_results()
         
-        return model
+        return self.psml
+
+    def save_report(self, filename: str = "report.html"):
+        """
+        Saves a comprehensive HTML report of the end-to-end process.
+        
+        Args:
+            filename (str): The path to save the HTML report.
+        """
+        if not self.eda_report:
+            print("Warning: No EDA report found. Run consult_eda() or end_to_end_ml_process() first.")
+            return
+
+        html_content = ["""
+        <html>
+        <head>
+            <title>Data Scientist AI Report</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #f5f5f5; color: #333; }
+                .container { max-width: 1200px; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 0 20px rgba(0,0,0,0.1); border-radius: 8px; }
+                h1, h2, h3 { color: #2c3e50; }
+                h1 { text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 20px; }
+                h2 { border-left: 5px solid #3498db; padding-left: 15px; margin-top: 40px; background-color: #ecf0f1; padding: 10px; border-radius: 0 5px 5px 0; }
+                pre { background-color: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                .section { margin-bottom: 50px; }
+                
+                /* Table Styles */
+                table { border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 0.9em; }
+                th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+                th { background-color: #3498db; color: white; }
+                tr:hover { background-color: #f1f1f1; }
+                .table-container { overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1px solid #eee; margin: 20px 0; }
+                
+                /* Plot Styles */
+                img { max-width: 100%; height: auto; margin: 20px 0; border: 1px solid #eee; border-radius: 4px; }
+                .plot-container { text-align: center; margin: 30px 0; }
+
+                /* Markdown Content Styles */
+                .text-content p { margin-bottom: 1em; line-height: 1.6; }
+                .text-content ul, .text-content ol { margin-bottom: 1em; padding-left: 20px; }
+                .text-content li { margin-bottom: 0.5em; }
+                .text-content h3 { margin-top: 1.5em; color: #34495e; }
+                .text-content h4 { margin-top: 1.2em; color: #34495e; font-weight: bold; }
+                .text-content blockquote { border-left: 4px solid #3498db; padding-left: 15px; color: #7f8c8d; margin: 1em 0; }
+                .text-content code { background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace; color: #e74c3c; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Data Scientist AI - End-to-End Report</h1>
+        """]
+
+        # 1. EDA Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>1. Exploratory Data Analysis</h2>")
+        if self.ai_eda_summary:
+             html_content.append("<h3>AI Analysis Summary</h3>")
+             html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_eda_summary))}</div>")
+        
+        html_content.extend(self.eda_report.get_html_fragments())
+        html_content.append("</div>")
+
+        # 2. Feature Engineering Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>2. Feature Engineering</h2>")
+        if self.ai_feature_engineering_code:
+            html_content.append("<h3>Generated Code</h3>")
+            html_content.append(f"<pre><code>{self.ai_feature_engineering_code}</code></pre>")
+        else:
+            html_content.append("<p>No feature engineering code generated.</p>")
+        html_content.append("</div>")
+
+        # 3. Preprocessing Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>3. Preprocessing Configuration</h2>")
+        if self.ai_preprocessor:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_preprocessor, indent=4) if isinstance(self.ai_preprocessor, dict) else str(self.ai_preprocessor)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No preprocessor configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 4. Models Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>4. Models Configuration</h2>")
+        if self.ai_models_config:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_models_config, indent=4) if isinstance(self.ai_models_config, dict) else str(self.ai_models_config)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No models configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 5. Ensamble Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>5. Ensamble Configuration</h2>")
+        if self.ai_ensamble_config:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_ensamble_config, indent=4) if isinstance(self.ai_ensamble_config, dict) else str(self.ai_ensamble_config)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No ensamble configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 6. Results Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>6. Results & Analysis</h2>")
+        
+        if self.psml:
+             scores = self.psml.scores()
+             if scores:
+                 html_content.append("<h3>Model Scores</h3>")
+                 # Convert scores dict to dataframe for nice table
+                 try:
+                     scores_df = pd.DataFrame(scores).T
+                     html_content.append(scores_df.to_html(classes='table', border=0))
+                 except:
+                     html_content.append(f"<pre>{json.dumps(scores, indent=4)}</pre>")
+
+        if self.ai_results_analysis:
+            html_content.append("<h3>AI Analysis</h3>")
+            html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_results_analysis))}</div>")
+        
+        html_content.append("</div>")
+        
+        html_content.append("</div></body></html>")
+        print(" STEP 1: Exploratory Data Analysis (EDA) ")
+        print("="*40 + "\n")
+        self.consult_eda()
+
+        # 3. Feature Engineering
+        print("\n" + "="*40)
+        print(" STEP 2: Feature Engineering ")
+        print("="*40 + "\n")
+        # consult_feature_engineering returns X, y
+        self.X, self.y = self.consult_feature_engineering(execute_code=execute_code)
+
+        # 4. Preprocessing
+        print("\n" + "="*40)
+        print(" STEP 3: Preprocessing Configuration ")
+        print("="*40 + "\n")
+        self.ai_preprocessor = self.consult_preprocessor(execute_code=execute_code)
+
+        # 5. Model Selection
+        print("\n" + "="*40)
+        print(" STEP 4: Model Selection & Configuration ")
+        print("="*40 + "\n")
+        self.ai_models_config = self.consult_models(execute_code=execute_code)
+
+        # 5. Ensamble Configuration
+        print("\n" + "="*40)
+        print(" STEP 5: Ensamble Configuration ")
+        print("="*40 + "\n")
+        self.ai_ensamble_config = self.consult_ensamble(execute_code=execute_code)
+
+        # 6. Configuration Merging
+        print("\n" + "="*40)
+        print(" STEP 6: Configuring PSML ")
+        print("="*40 + "\n")
+        
+        run_config = copy.deepcopy(CONFIG)
+        run_config['dataset']['target'] = self.target
+        
+        if isinstance(self.ai_preprocessor, dict):
+             run_config['preprocessor'] = self.ai_preprocessor
+        
+        if isinstance(self.ai_models_config, dict):
+            run_config['models'] = self.ai_models_config
+
+        if isinstance(self.ai_ensamble_config, dict):
+            run_config['stacking'] = self.ai_ensamble_config['stacking']
+            run_config['voting'] = self.ai_ensamble_config['voting']
+
+        for model_name, model_config_details in self.ai_models_config.items():
+            if model_config_details.get("enabled", False) is True:
+                print(f"Enabling model: {model_name}")
+
+        # 7. Execution
+        print("\n" + "="*40)
+        print(" STEP 7: Model Training & Optimization ")
+        print("="*40 + "\n")
+        self._analyze(run_config)
+        
+        print("\n" + "="*40)
+        print(" Final Scores ")
+        print("="*40 + "\n")
+        self.psml.scores()
+
+        # 8. Results
+        print("\n" + "="*40)
+        print(" STEP 8: Results ")
+        print("="*40 + "\n")
+        self.consult_results()
+        
+        return self.psml
+
+    def save_report(self, filename: str = "report.html"):
+        """
+        Saves a comprehensive HTML report of the end-to-end process.
+        
+        Args:
+            filename (str): The path to save the HTML report.
+        """
+        if not self.eda_report:
+            print("Warning: No EDA report found. Run consult_eda() or end_to_end_ml_process() first.")
+            return
+
+        html_content = ["""
+        <html>
+        <head>
+            <title>Data Scientist AI Report</title>
+            <style>
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #f5f5f5; color: #333; }
+                .container { max-width: 1200px; margin: 0 auto; background: white; padding: 40px; box-shadow: 0 0 20px rgba(0,0,0,0.1); border-radius: 8px; }
+                h1, h2, h3 { color: #2c3e50; }
+                h1 { text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 20px; }
+                h2 { border-left: 5px solid #3498db; padding-left: 15px; margin-top: 40px; background-color: #ecf0f1; padding: 10px; border-radius: 0 5px 5px 0; }
+                pre { background-color: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; overflow-x: auto; }
+                .section { margin-bottom: 50px; }
+                
+                /* Table Styles */
+                table { border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 0.9em; }
+                th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+                th { background-color: #3498db; color: white; }
+                tr:hover { background-color: #f1f1f1; }
+                .table-container { overflow-x: auto; max-height: 600px; overflow-y: auto; border: 1px solid #eee; margin: 20px 0; }
+                
+                /* Plot Styles */
+                img { max-width: 100%; height: auto; margin: 20px 0; border: 1px solid #eee; border-radius: 4px; }
+                .plot-container { text-align: center; margin: 30px 0; }
+
+                /* Markdown Content Styles */
+                .text-content p { margin-bottom: 1em; line-height: 1.6; }
+                .text-content ul, .text-content ol { margin-bottom: 1em; padding-left: 20px; }
+                .text-content li { margin-bottom: 0.5em; }
+                .text-content h3 { margin-top: 1.5em; color: #34495e; }
+                .text-content h4 { margin-top: 1.2em; color: #34495e; font-weight: bold; }
+                .text-content blockquote { border-left: 4px solid #3498db; padding-left: 15px; color: #7f8c8d; margin: 1em 0; }
+                .text-content code { background-color: #f8f9fa; padding: 2px 4px; border-radius: 3px; font-family: Consolas, monospace; color: #e74c3c; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Data Scientist AI - End-to-End Report</h1>
+        """]
+
+        # 1. EDA Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>1. Exploratory Data Analysis</h2>")
+        if self.ai_eda_summary:
+             html_content.append("<h3>AI Analysis Summary</h3>")
+             html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_eda_summary))}</div>")
+        
+        html_content.extend(self.eda_report.get_html_fragments())
+        html_content.append("</div>")
+
+        # 2. Feature Engineering Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>2. Feature Engineering</h2>")
+        if self.ai_feature_engineering_code:
+            html_content.append("<h3>Generated Code</h3>")
+            html_content.append(f"<pre><code>{self.ai_feature_engineering_code}</code></pre>")
+        else:
+            html_content.append("<p>No feature engineering code generated.</p>")
+        html_content.append("</div>")
+
+        # 3. Preprocessing Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>3. Preprocessing Configuration</h2>")
+        if self.ai_preprocessor:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_preprocessor, indent=4) if isinstance(self.ai_preprocessor, dict) else str(self.ai_preprocessor)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No preprocessor configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 4. Models Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>4. Models Configuration</h2>")
+        if self.ai_models_config:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_models_config, indent=4) if isinstance(self.ai_models_config, dict) else str(self.ai_models_config)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No models configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 5. Ensamble Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>5. Ensamble Configuration</h2>")
+        if self.ai_ensamble_config:
+            html_content.append("<h3>Generated Configuration</h3>")
+            config_str = json.dumps(self.ai_ensamble_config, indent=4) if isinstance(self.ai_ensamble_config, dict) else str(self.ai_ensamble_config)
+            html_content.append(f"<pre><code>{config_str}</code></pre>")
+        else:
+             html_content.append("<p>No ensamble configuration generated.</p>")
+        html_content.append("</div>")
+
+        # 6. Results Section
+        html_content.append("<div class='section'>")
+        html_content.append("<h2>6. Results & Analysis</h2>")
+        
+        if self.psml:
+             scores = self.psml.scores()
+             if scores:
+                 html_content.append("<h3>Model Scores</h3>")
+                 # Convert scores dict to dataframe for nice table
+                 try:
+                     scores_df = pd.DataFrame(scores).T
+                     html_content.append(scores_df.to_html(classes='table', border=0))
+                 except:
+                     html_content.append(f"<pre>{json.dumps(scores, indent=4)}</pre>")
+
+        if self.ai_results_analysis:
+            html_content.append("<h3>AI Analysis</h3>")
+            html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_results_analysis))}</div>")
+        
+        html_content.append("</div>")
+        
+        html_content.append("</div></body></html>")
+        
+        full_html = '\n'.join(html_content)
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(full_html)
