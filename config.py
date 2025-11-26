@@ -66,13 +66,13 @@ MODELS_CONFIG = {
         'enabled': models_enabled['lightgbm'], # Enable/Disable LightGBM
         'optuna_trials': optuna_trials,        # Number of hyperparameter search trials
         'optuna_timeout': 3600,                # Max time (seconds) for optimization
-        'optuna_metric': optuna_metric,        # Metric to optimize
+        'optuna_metric': optuna_metric,        # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': optuna_n_jobs,        # Parallel jobs for Optuna
         'params': {                            # Fixed parameters (not optimized)
             'verbose': verbose,
-            'objective': 'rmse',               # Learning objective (e.g., 'rmse', 'binary')
+            'objective': 'rmse',               # Learning objective (e.g., regression:['mse','mae'], classification:['binary','multiclass'])
             'device': device,                  # Hardware acceleration ('cpu' or 'gpu')
-            'eval_metric': 'rmse',             # Metric used for early stopping
+            'eval_metric': 'rmse',             # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
             'num_threads': model_n_jobs,       # Threads for model training
             
         },
@@ -92,17 +92,17 @@ MODELS_CONFIG = {
         }
     },
     'xgboost': {
-        'enabled': models_enabled['xgboost'],
-        'optuna_trials': optuna_trials,
-        'optuna_timeout': 3600,
-        'optuna_metric': optuna_metric,
-        'optuna_n_jobs': optuna_n_jobs,
+        'enabled': models_enabled['xgboost'],       # Enable/Disable XGBoost models
+        'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,             # Number of jobs to run in parallel
         'params': {
             'verbose': verbose,
-            'objective': 'reg:squarederror',
-            'device': device,
-            'eval_metric': 'rmse',
-            'nthread': model_n_jobs
+            'objective': 'reg:squarederror',        # Learning objective (e.g., regression:['reg:squarederror','reg:absoluteerror'], classification:['binary:logistic','multi:softprob'])
+            'device': device,                       # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'rmse',                  # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
+        'nthread': model_n_jobs,                    # Threads for model training
         },
         'optuna_params': {                    # Hyperparameter search space
             'booster': {'type': 'categorical', 'choices': ['gbtree']},
@@ -119,17 +119,17 @@ MODELS_CONFIG = {
         }
     },
     'catboost': {
-        'enabled': models_enabled['catboost'],
-        'optuna_trials': optuna_trials,
-        'optuna_timeout': 3600, # Time budget in seconds (1 hour)
-        'optuna_metric': optuna_metric,
-        'optuna_n_jobs': optuna_n_jobs,
+        'enabled': models_enabled['catboost'],   # Enable/Disable CatBoost models
+        'optuna_trials': optuna_trials,         # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                 # Time budget in seconds (1 hour)
+        'optuna_metric': optuna_metric,         # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,         # Number of parallel Optuna jobs (studies running at once)
         'params': {
             'verbose': verbose,
-            'objective': 'RMSE',
-            'device': device,
-            'eval_metric': 'RMSE',
-            'thread_count': model_n_jobs
+            'objective': 'RMSE',                # Learning objective (e.g., regression:['RMSE','MAE'], classification:['Logloss','MultiClass'])
+            'device': device,                   # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'RMSE',              # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
+            'thread_count': model_n_jobs,       # Threads for model training
         },
         'optuna_params': {                    # Hyperparameter search space
             'n_estimators': {'type': 'int', 'low': 100, 'high': 3000},
@@ -152,7 +152,7 @@ MODELS_CONFIG = {
         'enabled': models_enabled['random_forest'], # Enable/Disable Random Forest models
         'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
         'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-        'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': model_n_jobs,              # Number of jobs to run in parallel
         'params': {
             'verbose': verbose,
@@ -172,21 +172,21 @@ MODELS_CONFIG = {
         'enabled': models_enabled['pytorch'],       # Enable/Disable PyTorch models
         'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
         'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-        'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': 1,                         # Number of jobs to run in parallel
         'params': {
             "train_max_epochs": 50,                 # Number of epochs to train for
             "train_patience": 5,                    # Number of epochs to wait before early stopping
             "final_max_epochs": 1000,               # Number of epochs to train for
             "final_patience": 20,                   # Number of epochs to wait before early stopping
-            "objective": "mse",                     # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+            "objective": "mse",                     # objective (e.g., regression:['mse','mae','huber','rmsle','mape'], classification:['bce','bcelogit','crossentropy']
             "device": device,                       # 'cpu', 'gpu'
             'verbose': verbose,
             'embedding_info': ['time_of_day'],      #       
             'num_threads': model_n_jobs,
         },
-        'optuna_params': {                         # Hyperparameter search space for PyTorch models
-            'model_type': {'type': 'categorical', 'choices': ['mlp']},        #['mlp', 'ft_transformer'] model type
+        'optuna_params': {                                                                      # Hyperparameter search space for PyTorch models
+            'model_type': {'type': 'categorical', 'choices': ['mlp','ft_transformer']},                          #['mlp', 'ft_transformer'] model type
             'optimizer_name': {'type': 'categorical', 'choices': ['adam']},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
             'learning_rate': {'type': 'categorical', 'choices': [0.01]},                        #['0.01', '0.001'] learning rate
             'batch_size': {'type': 'categorical', 'choices': [64, 128, 256]},                   #['64', '128', '256'] batch size

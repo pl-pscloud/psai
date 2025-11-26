@@ -525,7 +525,7 @@ class psML:
                 except optuna.exceptions.TrialPruned:
                     raise
                 except Exception as e:
-                    print(f"Error in fold {fold}: {e}")
+                    print(f"\nError in fold {fold}: {e}")
                     raise optuna.exceptions.TrialPruned()
 
                 # Prediction
@@ -585,9 +585,15 @@ class psML:
         )
 
         # Store results
+        try:
+            self.models[model_name]['best_params'] = study.best_trial.params
+        except ValueError:
+            print(f"Warning: No trials completed for {model_name}. Disabling model.")
+            self.config['models'][model_name]['enabled'] = False
+            return
+
         self.models[model_name]['cv_score'] = self.best_cv_scores[model_name]
         self.models[model_name]['cv_model'] = self.best_cv_models[model_name]
-        self.models[model_name]['best_params'] = study.best_trial.params
         self.models[model_name]['study'] = study
 
         # Final Training on Full Data

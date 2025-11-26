@@ -581,8 +581,6 @@ Write the code now.
             'voting': False,
         }
 
-        
-
         models_prompt = f"""
 Your task is to enable/disable models and tune parameters for machine learning optimization with optuna for analyzed dataset.
 
@@ -592,11 +590,178 @@ CPU available cores: {cpu_count}
 
 The model_config default is (json format):
 ===
-MODELS_CONFIG = {json.dumps(MODELS_CONFIG['models'], indent=10)}
+MODELS_CONFIG = MODELS_CONFIG = {{
+    'lightgbm': {{
+        'enabled': models_enabled['lightgbm'], # Enable/Disable LightGBM
+        'optuna_trials': optuna_trials,        # Number of hyperparameter search trials
+        'optuna_timeout': 3600,                # Max time (seconds) for optimization
+        'optuna_metric': optuna_metric,        # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,        # Parallel jobs for Optuna
+        'params': {{                            # Fixed parameters (not optimized)
+            'verbose': verbose,
+            'objective': 'rmse',               # Learning objective (e.g., regression:['mse','mae'], classification:['binary','multiclass'])
+            'device': device,                  # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'rmse',             # Metric used for early stopping regression:['mse','mae'], classification:['auc','binary_error','neg_log_loss'])
+            'num_threads': model_n_jobs,       # Threads for model training
+            
+        }},
+        'optuna_params': {{                    # Hyperparameter search space
+            'boosting_type': {{'type': 'categorical', 'choices': ['gbdt', 'goss']}},
+            'lambda_l1': {{'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True}},
+            'lambda_l2': {{'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True}},
+            'num_leaves': {{'type': 'int', 'low': 20, 'high': 300}},
+            'feature_fraction': {{'type': 'float', 'low': 0.4, 'high': 1.0}},
+            'min_child_samples': {{'type': 'int', 'low': 5, 'high': 100}},
+            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
+            'min_split_gain': {{'type': 'float', 'low': 1e-8, 'high': 1.0, 'log': True}},
+            'max_depth': {{'type': 'int', 'low': 3, 'high': 20}},
+            'bagging_fraction': {{'type': 'float', 'low': 0.4, 'high': 1.0}},
+            'bagging_freq': {{'type': 'int', 'low': 1, 'high': 7}},
+            'num_class': 10,                   # Number of classes for multiclass classification (if task_type is 'classification')
+        }}
+    }},
+    'xgboost': {{
+        'enabled': models_enabled['xgboost'],       # Enable/Disable XGBoost models
+        'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,             # Number of jobs to run in parallel
+        'params': {{
+            'verbose': verbose,
+            'objective': 'reg:squarederror',        # Learning objective (e.g., regression:['reg:squarederror','reg:absoluteerror'], classification:['binary:logistic','multi:softprob'])
+            'device': device,                       # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'rmse',                  # Metric used for early stopping regression:['rmse','mae'], classification:['auc','error','logloss'])
+            'nthread': model_n_jobs,                # Threads for model training
+        }},
+        'optuna_params': {{                    # Hyperparameter search space
+            'booster': {{'type': 'categorical', 'choices': ['gbtree']}},
+            'max_depth': {{'type': 'int', 'low': 3, 'high': 20}},
+            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
+            'n_estimators': {{'type': 'int', 'low': 500, 'high': 3000}},
+            'subsample': {{'type': 'float', 'low': 0, 'high': 1}},
+            'lambda': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
+            'gamma': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
+            'alpha': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
+            'min_child_weight': {{'type': 'categorical', 'choices': [0.5, 1, 3, 5]}},
+            'colsample_bytree': {{'type': 'float', 'low': 0.5, 'high': 1}},
+            'colsample_bylevel': {{'type': 'float', 'low': 0.5, 'high': 1}}
+        }}
+    }},
+    'catboost': {{  
+        'enabled': models_enabled['catboost'],   # Enable/Disable CatBoost models
+        'optuna_trials': optuna_trials,         # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                 # Time budget in seconds (1 hour)
+        'optuna_metric': optuna_metric,         # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,         # Number of parallel Optuna jobs (studies running at once)
+        'params': {{
+            'verbose': verbose,
+            'objective': 'RMSE',                # Learning objective (e.g., regression:['RMSE','MAE'], classification:['Logloss','MultiClass'])
+            'device': device,                   # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'RMSE',              # Metric used for early stopping regression:['mse','mae'], classification:['AUC','Accuracy','Logloss])
+            'thread_count': model_n_jobs,       # Threads for model training
+        }},
+        'optuna_params': {{                    # Hyperparameter search space
+            'n_estimators': {{'type': 'int', 'low': 100, 'high': 3000}},
+            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
+            'depth': {{'type': 'int', 'low': 4, 'high': 10}},
+            'l2_leaf_reg': {{'type': 'float', 'low': 1e-3, 'high': 10.0, 'log': True}},
+            'border_count': {{'type': 'int', 'low': 32, 'high': 128}},
+            'bootstrap_type': {{'type': 'categorical', 'choices': ['Bayesian', 'Bernoulli', 'MVS']}},
+            'feature_border_type': {{'type': 'categorical', 'choices': ['Median', 'Uniform', 'GreedyMinEntropy']}},
+            'leaf_estimation_iterations': {{'type': 'int', 'low': 1, 'high': 10}},
+            'min_data_in_leaf': {{'type': 'int', 'low': 1, 'high': 30}},
+            'random_strength': {{'type': 'float', 'low': 1e-9, 'high': 10, 'log': True}},
+            'grow_policy': {{'type': 'categorical', 'choices': ['SymmetricTree', 'Depthwise', 'Lossguide']}},
+            'subsample': {{'type': 'float', 'low': 0.6, 'high': 1.0}},
+            'bagging_temperature': {{'type': 'float', 'low': 0, 'high': 1}},
+            'max_leaves': {{'type': 'int', 'low': 2, 'high': 32}}
+        }}
+    }}   ,
+    'random_forest': {{
+        'enabled': models_enabled['random_forest'], # Enable/Disable Random Forest models
+        'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': model_n_jobs,              # Number of jobs to run in parallel
+        'params': {{
+            'verbose': verbose,
+            'n_jobs': model_n_jobs
+        }},
+        'optuna_params': {{                    # Hyperparameter search space for RF
+            'n_estimators': {{'type': 'int', 'low': 100, 'high': 1000}},
+            'max_depth': {{'type': 'int', 'low': 3, 'high': 30}},
+            'min_samples_split': {{'type': 'int', 'low': 2, 'high': 20}},
+            'min_samples_leaf': {{'type': 'int', 'low': 1, 'high': 10}},
+            'max_features': {{'type': 'categorical', 'choices': ['sqrt', 'log2', None]}},
+            'bootstrap': {{'type': 'categorical', 'choices': [True, False]}},
+            'max_samples': {{'type': 'float', 'low': 0.5, 'high': 1.0}}
+        }}
+    }}   ,
+    'pytorch': {{
+        'enabled': models_enabled['pytorch'],       # Enable/Disable PyTorch models
+        'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': 1,                         # Number of jobs to run in parallel
+        'params': {{
+            "train_max_epochs": 50,                 # Number of epochs to train for
+            "train_patience": 5,                    # Number of epochs to wait before early stopping
+            "final_max_epochs": 1000,               # Number of epochs to train for
+            "final_patience": 20,                   # Number of epochs to wait before early stopping
+            "objective": "mse",                     # objective (e.g., regression:['mse','mae','huber','rmsle','mape'], classification:['bce','bcelogit','crossentropy']
+            "device": device,                       # 'cpu', 'gpu'
+            'verbose': verbose,
+            'embedding_info': ['time_of_day'],      #       
+            'num_threads': model_n_jobs,
+        }}   ,
+        'optuna_params': {{                                                                      # Hyperparameter search space for PyTorch models
+            'model_type': {{'type': 'categorical', 'choices': ['mlp']}},                          #['mlp', 'ft_transformer'] model type
+            'optimizer_name': {{'type': 'categorical', 'choices': ['adam']}},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
+            'learning_rate': {{'type': 'categorical', 'choices': [0.01]}},                        #['0.01', '0.001'] learning rate
+            'batch_size': {{'type': 'categorical', 'choices': [64, 128, 256]}},                   #['64', '128', '256'] batch size
+            'weight_init': {{'type': 'categorical', 'choices': ['default']}},                     #['default', 'xavier', 'kaiming'] weight initialization
+            'net': {{'type': 'categorical', 'choices': [                                         
+                # MLP ReLU without batch or layer norm
+                [
+                    {{'type': 'dense', 'out_features': 16, 'activation': 'relu', 'norm': None}},
+                    {{'type': 'dropout', 'p': 0.1}},
+                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
+                ],
+                # MLP GELU with layer norm
+                [
+                    {{'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'}},
+                    {{'type': 'dropout', 'p': 0.1}},
+                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}}
+                ],
+                # MLP Swish/SILU with layer norm
+                [
+                    {{'type': 'dense', 'out_features': 64, 'activation': 'swish', 'norm': 'layer_norm'}},
+                    {{'type': 'dropout', 'p': 0.1}},
+                    {{'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'}},
+                    {{'type': 'dropout', 'p': 0.1}},
+                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}}
+                ],
+
+            ]}},
+            # FT-Transformer Params
+            'd_token': {{'type': 'categorical', 'choices': [64, 128, 192, 256]}},
+            'n_layers': {{'type': 'int', 'low': 1, 'high': 4}},
+            'n_heads': {{'type': 'categorical', 'choices': [4, 8]}},
+            'd_ffn_factor': {{'type': 'float', 'low': 1.0, 'high': 2.0}},
+            'attention_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.3}},
+            'ffn_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.3}},
+            'residual_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.2}}
+        }}   
+    }}
+}}
 ===
 
 Based on the analysis, create the best configuration for mentioned earlier models and analyzed dataset.
 
+The eval metrics list from you can choose for MODELS_CONFIG:
+===
+EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape']
+===
 
 **Constraints**:
 -   The config MUST be in json format.
