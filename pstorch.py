@@ -394,7 +394,7 @@ class PyTorchBaseEstimator(BaseEstimator):
             num_train_features = X
             cat_val_features = None
             num_val_features = eval_X
-
+        
         self.input_dim = num_train_features.shape[1] if num_train_features is not None else 0
 
         # To tensors
@@ -403,20 +403,24 @@ class PyTorchBaseEstimator(BaseEstimator):
 
         cat_train_tensor = to_tensor(cat_train_features, torch.long)
         num_train_tensor = to_tensor(num_train_features, torch.float32)
-        y_train_tensor = to_tensor(y, torch.float32).view(-1, 1)
+        
+        if self.loss == 'crossentropy':
+            y_train_tensor = to_tensor(y, torch.long)
+            if y_train_tensor is not None:
+                y_train_tensor = y_train_tensor.view(-1)
+        else:
+            y_train_tensor = to_tensor(y, torch.float32).view(-1, 1)
 
         cat_val_tensor = to_tensor(cat_val_features, torch.long)
         num_val_tensor = to_tensor(num_val_features, torch.float32)
-        y_val_tensor = to_tensor(eval_y, torch.float32).view(-1, 1) if eval_y is not None else None
-
-        # Datasets
-        # We need to be careful with TensorDataset if some tensors are None
-        # We'll always pass both cat and num to the model, even if None (handled inside model)
-        # But TensorDataset needs actual tensors.
-        # Let's create a custom dataset or just handle the loop carefully.
-        # Simplest: Create dummy tensors if None? No, waste of memory.
-        # Let's just use what we have and unpack in the loop.
         
+        if self.loss == 'crossentropy':
+             y_val_tensor = to_tensor(eval_y, torch.long)
+             if y_val_tensor is not None:
+                 y_val_tensor = y_val_tensor.view(-1)
+        else:
+            y_val_tensor = to_tensor(eval_y, torch.float32).view(-1, 1) if eval_y is not None else None
+
         tensors_to_pass = []
         if cat_train_tensor is not None: tensors_to_pass.append(cat_train_tensor)
         if num_train_tensor is not None: tensors_to_pass.append(num_train_tensor)
@@ -609,7 +613,7 @@ class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
 
     def _calculate_metrics(self, y_true, y_pred_raw, epoch_loss, phase='train'):
         # Handle output shape
-        if len(y_pred_raw.shape) == 1 or y_pred_raw.shape[1] == 1: # Binary
+        if self.loss in ['bce', 'bcelogit']: # Binary
             y_pred_raw = y_pred_raw.reshape(-1)
             y_true = y_true.reshape(-1)
             probs = 1 / (1 + np.exp(-y_pred_raw)) # Sigmoid
@@ -628,10 +632,10 @@ class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
             
             acc = accuracy_score(y_true, preds)
             try:
-                auc = roc_auc_score(y_true, probs, multi_class='ovr')
+                auc = roc_auc_score(y_true, probs, multi_class='ovr', average='weighted')
             except:
                 auc = 0.0
-            f1 = f1_score(y_true, preds, average='macro')
+            f1 = f1_score(y_true, preds, average='weighted')
             
         return {
             f'{phase}_loss': epoch_loss,

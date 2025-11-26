@@ -16,7 +16,7 @@ from sklearn.model_selection import KFold, train_test_split, StratifiedKFold
 from sklearn.metrics import (
     mean_squared_error, mean_absolute_error, mean_absolute_percentage_error,
     accuracy_score, f1_score, roc_auc_score, mean_squared_log_error, root_mean_squared_log_error,
-    precision_score
+    precision_score, recall_score
 )
 from sklearn.base import clone
 
@@ -74,6 +74,12 @@ class psML:
         self.y_test = y_test
         self.columns = {}
         self.preprocessor = None
+
+        # Determine if multiclass
+        self.is_multiclass = False
+        if self.config['dataset']['task_type'] == 'classification':
+             if self.y_train.iloc[:, 0].nunique() > 2:
+                 self.is_multiclass = True
 
         # Store min value of y_train for rmsle_safe
         self.y_train_min = self.y_train.min()
@@ -165,10 +171,11 @@ class psML:
 
     def get_evaluation_metric(self, metric_name: str):
         metric_mapping = {
-            'acc': accuracy_score,
-            'f1': lambda y_true, y_pred: f1_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
-            'auc': roc_auc_score,
-            'prec': lambda y_true, y_pred: precision_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
+            'acc': lambda y_true, y_pred: accuracy_score(y_true, np.argmax(y_pred, axis=1)) if self.is_multiclass else accuracy_score(y_true, (y_pred >= 0.5).astype(int)),
+            'f1': lambda y_true, y_pred: f1_score(y_true, np.argmax(y_pred, axis=1), average='weighted') if self.is_multiclass else f1_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
+            'auc': lambda y_true, y_pred: roc_auc_score(y_true, y_pred, multi_class='ovr', average='weighted') if self.is_multiclass else roc_auc_score(y_true, y_pred),
+            'prec': lambda y_true, y_pred: precision_score(y_true, np.argmax(y_pred, axis=1), average='weighted') if self.is_multiclass else precision_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
+            'rec': lambda y_true, y_pred: recall_score(y_true, np.argmax(y_pred, axis=1), average='weighted') if self.is_multiclass else recall_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
             'mse': mean_squared_error,
             'rmse': lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred)),
             'msle': mean_squared_log_error,
@@ -320,8 +327,11 @@ class psML:
                     params['bagging_temperature'] = self._suggest_param(trial, model_name, 'bagging_temperature', 'float', low=0, high=1)
                 if params['grow_policy'] == 'Lossguide':
                     params['max_leaves'] = self._suggest_param(trial, model_name, 'max_leaves', 'int', low=2, high=32)
-            else:
+            else:                
                 params.update(best_params)
+                if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
+                    print("GPU choose must switch Bootstrap type to Bayesian")
+                    params['bootstrap_type'] = 'Bayesian'
 
         elif model_name == 'pytorch':
             # Base params that are always present
@@ -395,6 +405,19 @@ class psML:
                 # Override epochs for final training
                 params["max_epochs"] = model_config['final_max_epochs']
                 params["patience"] = model_config['final_patience']
+
+            # Adjust output dimension for multiclass
+            n_classes = 1
+            if self.is_multiclass:
+                n_classes = self.y_train.iloc[:, 0].nunique()
+            
+            if params.get('model_type') == 'ft_transformer':
+                if 'ft_params' in params:
+                    params['ft_params']['n_out'] = n_classes
+            elif params.get('model_type') == 'mlp':
+                if 'net' in params and isinstance(params['net'], list):
+                    # Assume last layer is the output layer
+                    params['net'][-1]['out_features'] = n_classes
 
         elif model_name == 'random_forest':
             params = {
@@ -530,14 +553,21 @@ class psML:
 
                 # Prediction
                 if self.config['dataset']['task_type'] == 'classification':
-                    y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
+                    if self.is_multiclass:
+                        y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))
+                    else:
+                        y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
                 else:
                     y_pred = pipeline.predict(X_val_fold.reset_index(drop=True))
 
                 metric_func = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])
                 s = metric_func(y_val_fold.reset_index(drop=True), y_pred)
 
-                df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=[y_val_fold.columns[0]])
+                if self.is_multiclass:
+                    cols = [f"{y_val_fold.columns[0]}_{i}" for i in range(y_pred.shape[1])]
+                    df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=cols)
+                else:
+                    df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=[y_val_fold.columns[0]])
                 fitted_trial_models[f'fold{fold}'] = {'model': pipeline, 'oof': df_y_pred}
                 
                 scores += s
@@ -615,7 +645,10 @@ class psML:
         self._fit_model(final_pipeline, model_name, self.X_train, self.y_train, X_test_transformed, self.y_test)
 
         if self.config['dataset']['task_type'] == 'classification':
-            final_ypred = final_pipeline.predict_proba(self.X_test)[:, 1]
+            if self.is_multiclass:
+                final_ypred = final_pipeline.predict_proba(self.X_test)
+            else:
+                final_ypred = final_pipeline.predict_proba(self.X_test)[:, 1]
         else:
             final_ypred = final_pipeline.predict(self.X_test)
             
