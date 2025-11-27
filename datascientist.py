@@ -27,16 +27,18 @@ from psai.config import CONFIG
 from psai.psml import psML
 
 class DataScientist:
-    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview"):
+    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview", api_key: str = None):
         """
         Initialize the DataScientist agent.
         
         Args:
             model_name (str): The name of the Gemini model to use.
         """
-        api_key = os.getenv("GOOGLE_API_KEY")
+        if api_key is None:
+            api_key = os.getenv("GOOGLE_API_KEY")
         if not api_key:
             raise ValueError("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
+
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=1.0, google_api_key=api_key)
         self.llm_memory = InMemorySaver()
         self.df = df
