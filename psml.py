@@ -27,6 +27,14 @@ from xgboost import XGBClassifier, XGBRegressor
 from psai.scalersencoders import create_preprocessor
 from psai.pstorch import PyTorchRegressor, PyTorchClassifier
 
+try:
+    from scipy.optimize import BracketError
+except ImportError:
+    try:
+        from scipy.optimize._optimize import BracketError
+    except ImportError:
+        class BracketError(Exception): pass
+
 class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
@@ -145,6 +153,15 @@ class psML:
                     "test_score": test_score
                 }
                 print(f'{model_name.capitalize()} CV Score: {cv_score}, Test Score: {test_score}')
+        
+        # Add ensemble scores
+        for ensemble_name in ['ensemble_stacking_cv', 'ensemble_stacking_final', 'ensemble_voting_cv', 'ensemble_voting_final']:
+            if ensemble_name in self.models:
+                score = self.models[ensemble_name].get('score', "N/A")
+                results[ensemble_name] = {
+                    "score": score
+                }
+                print(f'{ensemble_name.replace("_", " ").title()} Score: {score}')
         
         if return_json:
             return json.dumps(results)
@@ -518,26 +535,26 @@ class psML:
             fitted_trial_models = {}
 
             for fold, (train_index, val_index) in enumerate(skf.split(self.X_train, self.y_train), 1):
-                if self.config['dataset']['verbose'] > 1:
-                    print(f'Fold {fold} ...', end="")
-
-                X_train_fold, X_val_fold = self.X_train.iloc[train_index], self.X_train.iloc[val_index]
-                y_train_fold, y_val_fold = self.y_train.iloc[train_index], self.y_train.iloc[val_index]
-
-                fold_preprocessor = clone(self.preprocessor)
-                fold_preprocessor.fit(X_train_fold, y_train_fold)
-                
-                # Transform validation data for eval_set
-                X_val_transformed = fold_preprocessor.transform(X_val_fold.reset_index(drop=True))
-                
-                clf = self._create_model(model_name, params)
-                
-                pipeline = Pipeline([
-                    ('preprocessor', fold_preprocessor),
-                    (model_name, clf)
-                ])
-
                 try:
+                    if self.config['dataset']['verbose'] > 1:
+                        print(f'Fold {fold} ...', end="")
+
+                    X_train_fold, X_val_fold = self.X_train.iloc[train_index], self.X_train.iloc[val_index]
+                    y_train_fold, y_val_fold = self.y_train.iloc[train_index], self.y_train.iloc[val_index]
+
+                    fold_preprocessor = clone(self.preprocessor)
+                    fold_preprocessor.fit(X_train_fold, y_train_fold)
+                    
+                    # Transform validation data for eval_set
+                    X_val_transformed = fold_preprocessor.transform(X_val_fold.reset_index(drop=True))
+                    
+                    clf = self._create_model(model_name, params)
+                    
+                    pipeline = Pipeline([
+                        ('preprocessor', fold_preprocessor),
+                        (model_name, clf)
+                    ])
+
                     self._fit_model(
                         pipeline, model_name, 
                         X_train_fold.reset_index(drop=True), 
@@ -545,37 +562,41 @@ class psML:
                         X_val_transformed, 
                         y_val_fold.reset_index(drop=True)
                     )
+
+                    # Prediction
+                    if self.config['dataset']['task_type'] == 'classification':
+                        if self.is_multiclass:
+                            y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))
+                        else:
+                            y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
+                    else:
+                        y_pred = pipeline.predict(X_val_fold.reset_index(drop=True))
+
+                    metric_func = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])
+                    s = metric_func(y_val_fold.reset_index(drop=True), y_pred)
+
+                    if self.is_multiclass:
+                        cols = [f"{y_val_fold.columns[0]}_{i}" for i in range(y_pred.shape[1])]
+                        df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=cols)
+                    else:
+                        df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=[y_val_fold.columns[0]])
+                    fitted_trial_models[f'fold{fold}'] = {'model': pipeline, 'oof': df_y_pred}
+                    
+                    scores += s
+                    if self.config['dataset']['verbose'] > 1:
+                        print(f" score: {s}")
+
+                    trial.report(np.mean(scores / fold), step=fold) # Report average so far
+                    if trial.should_prune():
+                        raise optuna.exceptions.TrialPruned()
+
                 except optuna.exceptions.TrialPruned:
                     raise
+                except BracketError:
+                    print(f"\nBracketError in fold {fold}. Pruning trial.")
+                    raise optuna.exceptions.TrialPruned()
                 except Exception as e:
                     print(f"\nError in fold {fold}: {e}")
-                    raise optuna.exceptions.TrialPruned()
-
-                # Prediction
-                if self.config['dataset']['task_type'] == 'classification':
-                    if self.is_multiclass:
-                        y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))
-                    else:
-                        y_pred = pipeline.predict_proba(X_val_fold.reset_index(drop=True))[:, 1]
-                else:
-                    y_pred = pipeline.predict(X_val_fold.reset_index(drop=True))
-
-                metric_func = self.get_evaluation_metric(self.config['models'][model_name]['optuna_metric'])
-                s = metric_func(y_val_fold.reset_index(drop=True), y_pred)
-
-                if self.is_multiclass:
-                    cols = [f"{y_val_fold.columns[0]}_{i}" for i in range(y_pred.shape[1])]
-                    df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=cols)
-                else:
-                    df_y_pred = pd.DataFrame(y_pred, index=y_val_fold.index, columns=[y_val_fold.columns[0]])
-                fitted_trial_models[f'fold{fold}'] = {'model': pipeline, 'oof': df_y_pred}
-                
-                scores += s
-                if self.config['dataset']['verbose'] > 1:
-                    print(f" score: {s}")
-
-                trial.report(np.mean(scores / fold), step=fold) # Report average so far
-                if trial.should_prune():
                     raise optuna.exceptions.TrialPruned()
 
             avg_score = scores / split
@@ -694,7 +715,7 @@ class psML:
 
     def build_ensemble_final(self):
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['final_enabled'] or self.config['voting']['final_enabled']):
-            print(f'===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================')
+            print(f'\n===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================\n')
         
         if self.config['stacking']['final_enabled']:
             if self.config['dataset']['verbose'] > 0:
@@ -740,7 +761,10 @@ class psML:
         st.fit(self.X_train, self.y_train)
         
         if self.config['dataset']['task_type'] == 'classification':
-            y_pred = st.predict_proba(self.X_test)[:, 1]
+            if self.is_multiclass:
+                y_pred = st.predict_proba(self.X_test)
+            else:
+                y_pred = st.predict_proba(self.X_test)[:, 1]
         else:
             y_pred = st.predict(self.X_test)
             
@@ -789,7 +813,10 @@ class psML:
             vt.named_estimators_ = dict(base_estimators)
             
         if self.config['dataset']['task_type'] == 'classification':
-            y_pred = vt.predict_proba(self.X_test)[:, 1]
+            if self.is_multiclass:
+                y_pred = vt.predict_proba(self.X_test)
+            else:
+                y_pred = vt.predict_proba(self.X_test)[:, 1]
         else:
             y_pred = vt.predict(self.X_test)
             
