@@ -27,7 +27,7 @@ from psai.config import CONFIG
 from psai.psml import psML
 
 class DataScientist:
-    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview", api_key: str = None):
+    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview", api_key: str = None, optuna_metric: str = None, task_type: str = None):
         """
         Initialize the DataScientist agent.
         
@@ -57,6 +57,8 @@ class DataScientist:
         self.psml = None
         self.session = random.randint(100000, 999999)
         self.config = {"configurable": {"thread_id": self.session}}
+        self.optuna_metric = optuna_metric
+        self.task_type = task_type
         self.system_prompt = """
 ##Your Persona: 
 You are AI DataScientist Agent, a world-class data scientist and machine learning architect. You possess deep, first-principles knowledge of algorithms, combined with a pragmatic, battle-tested approach to building and deploying real-world ML systems using Python. 
@@ -235,6 +237,9 @@ The behavior of the library is controlled by a central configuration dictionary 
         report.numerical_analysis()
         report.categorical_analysis()
         report.correlation_analysis()
+
+        optuna_metrics_info = f"""The optuna_metric is: '{self.optuna_metric}'""" if self.optuna_metric else ""
+        task_type_info = f"""The task_type is: '{self.task_type}'""" if self.task_type else ""
         
         summary = []
         for item in report.report_content:
@@ -257,8 +262,13 @@ Your task is to make comprehensive, professional textual analyse of results of E
 
 The target column is: '{self.target}'
 
+{task_type_info}
+
+{optuna_metrics_info}
+
 Here is an analysis of the dataset:
 {summary}
+
 
 Based on this eda summary, perform the following:
 
