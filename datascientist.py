@@ -205,15 +205,15 @@ The behavior of the library is controlled by a central configuration dictionary 
             pass
         return str(result)
 
-    def _analyze(self):
+    def analyze(self):
 
         if self.X is None or self.y is None:
-            raise ValueError("X and y must be set before calling _analyze.")
+            raise ValueError("X and y must be set before calling analyze.")
 
         self._configuring_psml()
 
         if self.run_config is None:
-            raise ValueError("run_config must be set before calling _analyze.")
+            raise ValueError("run_config must be set before calling analyze.")
         
         self.psml = psML(config=self.run_config, X=self.X, y=self.y)
         
@@ -277,9 +277,9 @@ Based on this eda summary, perform the following:
 Based on the summary above, provide a structured analysis:
 
 ### Data Quality Assessment
-* Identify any high-cardinality categorical features.
 * Note features with significant **missing values (NaNs)** and suggest an imputation strategy (e.g., mean/median for numerical, mode for categorical, or dropping the column).
 * Report the presence of **duplicates** and **outliers** if flagged in the summary.
+* Identify features which are skewd, outliers or have high-cardinality and suggest a strategy to handle them.
 
 ### Feature Engineering
 * Suggest feature engineering steps based on the EDA results.
@@ -287,9 +287,11 @@ Based on the summary above, provide a structured analysis:
 
 ### Preprocessing
 * Suggest a preprocessing pipeline based on the EDA results.
+* Explain  why you suggest this preprocessing and explain how choosen preprocessing are related to EDA results and how tranformation help models to perform better.
 
 ### Models Selection
 * Suggest a models based on the EDA results.
+* Explain  why you suggest this models and explain how choosen models are related to EDA results.
 
 ### Explainability
 * Explain in details why you propose some steps, how it works and what user can expect from it.
@@ -795,15 +797,16 @@ MODELS_CONFIG = MODELS_CONFIG = {{
             "objective": "mse",                     # objective (e.g., regression:['mse','mae','huber','rmsle','mape'], classification:['bce','bcelogit','crossentropy']
             "device": 'gpu',                        # 'cpu', 'gpu'
             'verbose': 1,
-            'embedding_info': ['time_of_day'],      #       
+            'embedding_info': ['time_of_day'],      # embedding info: should be list of strings of categorical columns with high cardinality 
             'num_threads': 8,
         }}   ,
-        'optuna_params': {{                                                                      # Hyperparameter search space for PyTorch models
-            'model_type': {{'type': 'categorical', 'choices': ['mlp']}},                          #['mlp', 'ft_transformer'] model type
-            'optimizer_name': {{'type': 'categorical', 'choices': ['adam']}},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
-            'learning_rate': {{'type': 'categorical', 'choices': [0.01]}},                        #['0.01', '0.001'] learning rate
-            'batch_size': {{'type': 'categorical', 'choices': [64, 128, 256]}},                   #['64', '128', '256'] batch size
-            'weight_init': {{'type': 'categorical', 'choices': ['default']}},                     #['default', 'xavier', 'kaiming'] weight initialization
+        'optuna_params': {{                                                                      
+            # Hyperparameter search space for PyTorch models
+            'model_type': {{'type': 'categorical', 'choices': ['mlp']}},                         #model type: ['mlp', 'ft_transformer'] 
+            'optimizer_name': {{'type': 'categorical', 'choices': ['adam']}},                    #optimizer: ['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] 
+            'learning_rate': {{'type': 'categorical', 'choices': [0.01]}},                       #learning rate: ['0.01', '0.001'] 
+            'batch_size': {{'type': 'categorical', 'choices': [64, 128, 256]}},                  #batch size: ['64', '128', '256'] 
+            'weight_init': {{'type': 'categorical', 'choices': ['default']}},                    #weight initialization: ['default', 'xavier', 'kaiming'] 
             'net': {{'type': 'categorical', 'choices': [                                         
                 # MLP ReLU without batch or layer norm
                 [
@@ -854,6 +857,7 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
 -   If possible for GPU use it, if not use CPU. values: 'cpu', 'gpu'
 -   When set params for catboost if choose device = 'gpu' use bootstrap_type = 'Bayesian' or 'Bernoulli'
 -   When multiclass are selected for lightgbm set num_class = x (where x is number of classes)
+-   Always choose params from scope provided in comments as it is. eg if name is 'adamw' use 'adamw' not 'adamW'
 -   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
@@ -952,7 +956,7 @@ Params Voting:
 
 ===
 
-Based on the analysis, create the best configuration for mentioned earlier ensamble models and analyzed dataset.
+Based on the analysis, create the best configuration for mentioned earlier ensamble models for analyzed dataset.
 
 **Constraints**:
 -   The config MUST be in json format.
@@ -1133,7 +1137,7 @@ Scores for models - metrics from models config:
         print("\n" + "="*40)
         print(" STEP 8: Model Training & Optimization ")
         print("="*40 + "\n")
-        self._analyze()
+        self.analyze()
         
         print("\n" + "="*40)
         print(" Final Scores ")

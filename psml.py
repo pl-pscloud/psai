@@ -6,8 +6,14 @@ import numpy as np
 import json
 import pickle
 import os
+import logging
 import lightgbm as lgb
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Callable, Tuple
+
+# Configure logger
+logger = logging.getLogger(__name__)
+if not logger.hasHandlers():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier, RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import Ridge, RidgeClassifier
@@ -39,16 +45,16 @@ class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
     """
-    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[pd.Series] = None):
-        self.models = {}
+    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[Union[pd.Series, pd.DataFrame]] = None):
+        self.models: Dict[str, Any] = {}
         
         if config is None:
             try:
                 from .config import CONFIG
                 self.config = CONFIG
             except ImportError:
-                print("Error: Config not provided and config.py not found.")
-                return
+                logger.error("Config not provided and config.py not found.")
+                raise ValueError("Config not provided and config.py not found.")
         else:
             self.config = config
         
@@ -57,13 +63,13 @@ class psML:
 
             train_path = self.config['dataset']['train_path']
             if not os.path.exists(train_path):
-                print(f"Error: Training data file not found at {train_path}")
-                return # Or raise FileNotFoundError(f"Training data file not found at {train_path}")
+                logger.error(f"Training data file not found at {train_path}")
+                raise FileNotFoundError(f"Training data file not found at {train_path}")
             df = pd.read_csv(train_path)
             target = self.config['dataset']['target']
             if target not in df.columns:
-                print(f"Error: Target column '{target}' not found in the dataset.")
-                return
+                logger.error(f"Target column '{target}' not found in the dataset.")
+                raise ValueError(f"Target column '{target}' not found in the dataset.")
             X = df.drop(columns=[target])
             y = df[[target]]
 
@@ -112,22 +118,25 @@ class psML:
         )
         self.sampler = optuna.samplers.TPESampler(seed=42)
 
-    def save_model(self, filepath: str):
+    def save(self, filepath: str) -> None:
         """Save the pSML object to a file using pickle"""
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'wb') as f:
             pickle.dump(self, f)
-        print(f"Model successfully saved to {filepath}")
+        logger.info(f"Model successfully saved to {filepath}")
     
     @staticmethod
-    def load_model(filepath: str) -> 'psML':
+    def load(filepath: str) -> 'psML':
         """Load a pSML object from a file"""
+        if not os.path.exists(filepath):
+            logger.error(f"File not found: {filepath}")
+            raise FileNotFoundError(f"File not found: {filepath}")
         with open(filepath, 'rb') as f:
             model = pickle.load(f)
-        print(f"Model successfully loaded from {filepath}")
+        logger.info(f"Model successfully loaded from {filepath}")
         return model
 
-    def optimize_all_models(self):
+    def optimize_all_models(self) -> None:
         self.create_preprocessor()
         
         # List of supported models
@@ -137,12 +146,12 @@ class psML:
             if self.config['models'].get(model_name, {}).get('enabled', False):
                 self.optimize_model(model_name)
 
-    def create_preprocessor(self):
+    def create_preprocessor(self) -> None:
         preprocessor, columns = create_preprocessor(self.config['preprocessor'], self.X_train)
         self.preprocessor = preprocessor
         self.columns = columns
 
-    def scores(self, return_json=False):
+    def scores(self, return_json: bool = False) -> Union[Dict[str, Any], str]:
         results = {}
         for model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']:
             if self.config['models'].get(model_name, {}).get('enabled', False):
@@ -152,7 +161,7 @@ class psML:
                     "cv_score": cv_score,
                     "test_score": test_score
                 }
-                print(f'{model_name.capitalize()} CV Score: {cv_score}, Test Score: {test_score}')
+                logger.info(f'{model_name.capitalize()} CV Score: {cv_score}, Test Score: {test_score}')
         
         # Add ensemble scores
         for ensemble_name in ['ensemble_stacking_cv', 'ensemble_stacking_final', 'ensemble_voting_cv', 'ensemble_voting_final']:
@@ -161,14 +170,14 @@ class psML:
                 results[ensemble_name] = {
                     "score": score
                 }
-                print(f'{ensemble_name.replace("_", " ").title()} Score: {score}')
+                logger.info(f'{ensemble_name.replace("_", " ").title()} Score: {score}')
         
         if return_json:
             return json.dumps(results)
 
         return results
 
-    def rmsle_safe(self, y_true, y_pred):
+    def rmsle_safe(self, y_true: Union[np.ndarray, pd.Series], y_pred: Union[np.ndarray, pd.Series]) -> float:
         """
         Root Mean Squared Logarithmic Error that handles negative values
         by converting them to the minimum value from the training set.
@@ -186,7 +195,7 @@ class psML:
         
         return np.sqrt(mean_squared_error(np.log1p(y_true_safe), np.log1p(y_pred_safe)))
 
-    def get_evaluation_metric(self, metric_name: str):
+    def get_evaluation_metric(self, metric_name: str) -> Callable:
         metric_mapping = {
             'acc': lambda y_true, y_pred: accuracy_score(y_true, np.argmax(y_pred, axis=1)) if self.is_multiclass else accuracy_score(y_true, (y_pred >= 0.5).astype(int)),
             'f1': lambda y_true, y_pred: f1_score(y_true, np.argmax(y_pred, axis=1), average='weighted') if self.is_multiclass else f1_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
@@ -204,17 +213,17 @@ class psML:
         }
         
         if metric_name not in metric_mapping:
-            print(f"Warning: Metric '{metric_name}' not found.")
+            logger.warning(f"Metric '{metric_name}' not found.")
             if self.config['dataset']['task_type'] == 'regression':
-                print("Defaulting to RMSE for regression.")
+                logger.warning("Defaulting to RMSE for regression.")
                 return lambda y_true, y_pred: np.sqrt(mean_squared_error(y_true, y_pred))
             else:
-                print("Defaulting to roc_auc_score for classification.")
+                logger.warning("Defaulting to roc_auc_score for classification.")
                 return roc_auc_score
         
         return metric_mapping[metric_name]
 
-    def _suggest_param(self, trial, model_name, param_name, default_type=None, **default_kwargs):
+    def _suggest_param(self, trial: optuna.Trial, model_name: str, param_name: str, default_type: Optional[str] = None, **default_kwargs: Any) -> Any:
         """
         Suggests a parameter value based on config or defaults.
         """
@@ -254,6 +263,8 @@ class psML:
         # If we are not in a trial (final training), we use the best params found
         if trial is None:
             best_params = self.models[model_name].get('best_params', {})
+            if not best_params:
+                logger.warning(f"No best params found for {model_name}, using defaults or empty dict.")
             # We will merge these later, but for now we need to know if we are suggesting or just retrieving
             pass
 
@@ -336,7 +347,7 @@ class psML:
                     'grow_policy': self._suggest_param(trial, model_name, 'grow_policy', 'categorical', choices=['SymmetricTree', 'Depthwise', 'Lossguide']),
                 })
                 if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
-                    print("GPU choose must switch Bootstrap type to Bayesian")
+                    logger.info("GPU choose must switch Bootstrap type to Bayesian")
                     params['bootstrap_type'] = 'Bayesian'
                 if params['bootstrap_type'] == 'Bernoulli':
                     params['subsample'] = self._suggest_param(trial, model_name, 'subsample', 'float', low=0.6, high=1.0)
@@ -347,7 +358,7 @@ class psML:
             else:                
                 params.update(best_params)
                 if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
-                    print("GPU choose must switch Bootstrap type to Bayesian")
+                    logger.info("GPU choose must switch Bootstrap type to Bayesian")
                     params['bootstrap_type'] = 'Bayesian'
 
         elif model_name == 'pytorch':
@@ -458,7 +469,7 @@ class psML:
 
         return params
 
-    def _create_model(self, model_name: str, params: Dict[str, Any]):
+    def _create_model(self, model_name: str, params: Dict[str, Any]) -> Any:
         task_type = self.config['dataset']['task_type']
         
         if task_type == 'classification':
@@ -473,9 +484,12 @@ class psML:
             elif model_name == 'catboost': return CatBoostRegressor(**params)
             elif model_name == 'random_forest': return RandomForestRegressor(**params)
             elif model_name == 'pytorch': return PyTorchRegressor(**params)
+        
+        logger.error(f"Unknown model name: {model_name}")
+        raise ValueError(f"Unknown model name: {model_name}")
         return None
 
-    def _fit_model(self, model, model_name: str, X_train, y_train, X_val, y_val):
+    def _fit_model(self, model: Any, model_name: str, X_train: pd.DataFrame, y_train: Union[pd.Series, pd.DataFrame], X_val: pd.DataFrame, y_val: Union[pd.Series, pd.DataFrame]) -> None:
         """Helper to fit models with their specific early stopping syntax"""
         
         # Common fit args
@@ -520,9 +534,9 @@ class psML:
             params = self._get_model_params(model_name, trial)
             
             if self.config['dataset']['verbose'] > 0:
-                print(f'===============  {model_name} training - trial {trial.number+1} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
+                logger.info(f'===============  {model_name} training - trial {trial.number+1} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
             if self.config['dataset']['verbose'] >= 2:
-                print(f'Optune used params:\n{params}')
+                logger.info(f'Optune used params:\n{params}')
 
             split = self.config['dataset']['cv_folds']
             scores = 0
@@ -537,7 +551,7 @@ class psML:
             for fold, (train_index, val_index) in enumerate(skf.split(self.X_train, self.y_train), 1):
                 try:
                     if self.config['dataset']['verbose'] > 1:
-                        print(f'Fold {fold} ...', end="")
+                        logger.info(f'Fold {fold} ...')
 
                     X_train_fold, X_val_fold = self.X_train.iloc[train_index], self.X_train.iloc[val_index]
                     y_train_fold, y_val_fold = self.y_train.iloc[train_index], self.y_train.iloc[val_index]
@@ -584,7 +598,7 @@ class psML:
                     
                     scores += s
                     if self.config['dataset']['verbose'] > 1:
-                        print(f" score: {s}")
+                        logger.info(f" score: {s}")
 
                     trial.report(np.mean(scores / fold), step=fold) # Report average so far
                     if trial.should_prune():
@@ -593,10 +607,10 @@ class psML:
                 except optuna.exceptions.TrialPruned:
                     raise
                 except BracketError:
-                    print(f"\nBracketError in fold {fold}. Pruning trial.")
+                    logger.warning(f"BracketError in fold {fold}. Pruning trial.")
                     raise optuna.exceptions.TrialPruned()
                 except Exception as e:
-                    print(f"\nError in fold {fold}: {e}")
+                    logger.error(f"Error in fold {fold}: {e}")
                     raise optuna.exceptions.TrialPruned()
 
             avg_score = scores / split
@@ -615,7 +629,7 @@ class psML:
                 self.best_cv_models[model_name] = fitted_trial_models
 
             if self.config['dataset']['verbose'] > 0:
-                print(f"CV {self.config['models'][model_name]['optuna_metric']} Score:", avg_score)
+                logger.info(f"CV {self.config['models'][model_name]['optuna_metric']} Score: {avg_score}")
 
             return avg_score
 
@@ -639,7 +653,7 @@ class psML:
         try:
             self.models[model_name]['best_params'] = study.best_trial.params
         except ValueError:
-            print(f"Warning: No trials completed for {model_name}. Disabling model.")
+            logger.warning(f"No trials completed for {model_name}. Disabling model.")
             self.config['models'][model_name]['enabled'] = False
             return
 
@@ -648,7 +662,7 @@ class psML:
         self.models[model_name]['study'] = study
 
         # Final Training on Full Data
-        print(f'===============  {model_name} Final Training  ============================')
+        logger.info(f'===============  {model_name} Final Training  ============================')
         
         final_params = self._get_model_params(model_name, trial=None)
         
@@ -679,9 +693,9 @@ class psML:
             'model': final_pipeline,
             'score': final_score
         }
-        print(f'===============  {model_name} test score: {final_score} =============')
+        logger.info(f'===============  {model_name} test score: {final_score} =============')
 
-    def _get_estimator(self, model_name: str):
+    def _get_estimator(self, model_name: str) -> Optional[Any]:
         """Helper to get estimator instance for stacking"""
         task_type = self.config['dataset']['task_type']
         random_state = 42
@@ -699,35 +713,35 @@ class psML:
             return RidgeClassifier() if task_type == 'classification' else Ridge()
         return None
 
-    def build_ensemble_cv(self):
+    def build_ensemble_cv(self) -> None:
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['cv_enabled'] or self.config['voting']['cv_enabled']):
-            print(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
+            logger.info(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
         
         if self.config['stacking']['cv_enabled']:
             if self.config['dataset']['verbose'] > 0:
-                print(f'Build Stacking from CV models')
+                logger.info(f'Build Stacking from CV models')
             self._build_stacking(use_cv_models=True)
         
         if self.config['voting']['cv_enabled']:
             if self.config['dataset']['verbose'] > 0:
-                print(f'Build Voting from CV models')
+                logger.info(f'Build Voting from CV models')
             self._build_voting(use_cv_models=True)
 
-    def build_ensemble_final(self):
+    def build_ensemble_final(self) -> None:
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['final_enabled'] or self.config['voting']['final_enabled']):
-            print(f'\n===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================\n')
+            logger.info(f'\n===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================\n')
         
         if self.config['stacking']['final_enabled']:
             if self.config['dataset']['verbose'] > 0:
-                print(f'Build Stacking from final models')
+                logger.info(f'Build Stacking from final models')
             self._build_stacking(use_cv_models=False)
         
         if self.config['voting']['final_enabled']:
             if self.config['dataset']['verbose'] > 0:
-                print(f'Build Voting from final models')
+                logger.info(f'Build Voting from final models')
             self._build_voting(use_cv_models=False)
 
-    def _build_stacking(self, use_cv_models: bool):
+    def _build_stacking(self, use_cv_models: bool) -> None:
         suffix = "cv" if use_cv_models else "final"
         meta_model_name = self.config['stacking']['meta_model']
         final_estimator = self._get_estimator(meta_model_name)
@@ -773,9 +787,9 @@ class psML:
         score = self.get_evaluation_metric(self.config['models'][ref_model]['optuna_metric'])(self.y_test, y_pred)
         
         self.models[f'ensemble_stacking_{suffix}'] = {'model': st, 'score': score}
-        print(f'Stacking {suffix} score: {score}')
+        logger.info(f'Stacking {suffix} score: {score}')
 
-    def _build_voting(self, use_cv_models: bool):
+    def _build_voting(self, use_cv_models: bool) -> None:
         suffix = "cv" if use_cv_models else "final"
         base_estimators = []
         
@@ -824,4 +838,4 @@ class psML:
         score = self.get_evaluation_metric(self.config['models'][ref_model]['optuna_metric'])(self.y_test, y_pred)
         
         self.models[f'ensemble_voting_{suffix}'] = {'model': vt, 'score': score}
-        print(f'Voting {suffix} score: {score}')
+        logger.info(f'Voting {suffix} score: {score}')
