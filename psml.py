@@ -835,7 +835,10 @@ class psML:
                         if model_name == 'xgboost':
                             model.named_steps[model_name].set_params(early_stopping_rounds=None)
                         base_estimators.append((model_name, model))
-        print(f"Base estimators: {base_estimators}")
+        
+        if self.config['dataset']['verbose'] > 1:
+            logger.info(f"Base estimators: {base_estimators}")
+
 
         cls = StackingClassifier if self.config['dataset']['task_type'] == 'classification' else StackingRegressor
         st = cls(
@@ -896,8 +899,11 @@ class psML:
                     if final_key in self.models:
                         base_estimators.append(
                             (model_name, self.models[final_key]['model'])
-                        )
-        print(f"Base estimators: {base_estimators}")
+        
+                     )
+
+        if self.config['dataset']['verbose'] > 1:
+            logger.info(f"Base estimators: {base_estimators}")
 
         cls = VotingClassifier if self.config['dataset']['task_type'] == 'classification' else VotingRegressor
         kwargs = {'voting': 'soft'} if self.config['dataset']['task_type'] == 'classification' else {}
