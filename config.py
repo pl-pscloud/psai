@@ -30,6 +30,12 @@ DATASET_CONFIG = {
     'verbose': verbose          # Verbosity level inherited from global setting
 }
 
+MLFLOW_CONFIG = {
+    'enabled': False,
+    'experiment_name': 'Experiment Optuna Tuner',
+    'tracking_uri': 'mlruns'
+}
+
 # Preprocessor configuration for create_preprocessor function
 # Defines how different column types are handled in the pipeline
 PREPROCESSOR_CONFIG = {
@@ -228,19 +234,23 @@ MODELS_CONFIG = {
 
 # Stacking configuration
 STACKING_CONFIG = {
-    'cv_enabled': models_enabled['stacking'],   # Enable stacking during Cross-Validation
-    'cv_folds': 5,                              # Folds for stacking CV (if not using prefit)
-    'final_enabled': models_enabled['stacking'],# Enable stacking for the final model
-    'meta_model': 'lightgbm',                   # The model used to aggregate base model predictions
-    'use_features': True,                       # If True, feeds original features + predictions to meta-model
-    'prefit': True,                             # If True, uses existing trained models (faster). If False, retrains.
+    'cv_enabled': models_enabled['stacking'],                                       # Enable stacking on models from Optuna Cross-Validation best trial if choosen eg. lightbm stacking is builded on all lightbm models from best cv trial during optuna optimalization 
+    'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for stacking CV
+    'cv_folds': 5,                                                                  # Folds for stacking CV (if not using prefit)
+    'final_enabled': models_enabled['stacking'],                                    # Enable stacking for the final models
+    'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for stacking final modelss
+    'meta_model': 'lightgbm',                                                       # The model used to aggregate base model predictions
+    'use_features': False,                                                          # If False the meta-model will only learn from the predictions of the base models, not the original features.
+    'prefit': True,                                                                 # If True, uses existing trained models (faster). If False, retrains.
 }
 
 VOTING_CONFIG = {
-    'cv_enabled': models_enabled['voting'],     # Enable voting ensemble during Cross-Validation
-    'final_enabled': models_enabled['voting'],  # Enable voting ensemble for the final model
-    'use_features': True,                       # (Note: Voting usually just averages predictions, this flag might be custom logic)
-    'prefit': True,                             # If True, uses already trained models.
+    'cv_enabled': models_enabled['voting'],                                         # Enable voting on finals models builded during optuna optimalization 
+    'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for voting CV
+    'final_enabled': models_enabled['voting'],                                      # Enable voting ensemble for the final model
+    'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for voting final models
+    'use_features': False,                                                          # If False the meta-model will only learn from the predictions of the base models, not the original features.
+    'prefit': True,                                                                 # If True, uses already trained models.
 }
 
 # Output configuration
@@ -253,6 +263,7 @@ OUTPUT_CONFIG = {
 }
 
 CONFIG = {
+    'mlflow': MLFLOW_CONFIG,
     'dataset': DATASET_CONFIG,
     'preprocessor': PREPROCESSOR_CONFIG,
     'models': MODELS_CONFIG,

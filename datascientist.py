@@ -27,7 +27,7 @@ from psai.config import CONFIG
 from psai.psml import psML
 
 class DataScientist:
-    def __init__(self, df: pd.DataFrame, target: str,model_name: str = "gemini-3-pro-preview", api_key: str = None, optuna_metric: str = None, task_type: str = None):
+    def __init__(self, df: pd.DataFrame, target: str, model_provider: str = "google", model_name: str = "gemini-3-pro-preview", model_temperature: float = 1.0,  api_key: str = None, optuna_metric: str = None, optuna_trials: int = None, task_type: str = None, experiment_name: str = None):
         """
         Initialize the DataScientist agent.
         
@@ -35,11 +35,45 @@ class DataScientist:
             model_name (str): The name of the Gemini model to use.
         """
         if api_key is None:
-            api_key = os.getenv("GOOGLE_API_KEY")
+            api_key = os.getenv("API_KEY")
         if not api_key:
-            raise ValueError("GOOGLE_API_KEY not found in environment variables. Please check your .env file.")
+            raise ValueError("API_KEY not found in environment variables. Please check your .env file.")
 
-        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=1.0, google_api_key=api_key)
+
+        if model_provider == "google":
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            self.llm = ChatGoogleGenerativeAI(
+                model=model_name, 
+                temperature=model_temperature, 
+                google_api_key=api_key
+            )
+        elif model_provider == "openai":
+            from langchain_openai import ChatOpenAI
+            self.llm = ChatOpenAI(
+                model = model_name,
+                temperature = model_temperature,
+                max_retries = 2,
+                api_key = api_key,
+            )
+        elif model_provider == "antrophic":
+            from langchain_anthropic import ChatAnthropic
+            self.llm = ChatAnthropic(
+                model=model_name,
+                temperature=model_temperature,
+                max_retries=2,
+                api_key=api_key,
+            )
+        elif model_provider == "ollama":
+            from langchain_ollama import ChatOllama
+            self.llm = ChatOllama(
+                model=model_name,
+                validate_model_on_init=True,
+                temperature=model_temperature,
+            )
+        else:
+            raise ValueError(f"Provider '{model_provider}' not known, use: ['google','openai','antrophic','ollama']")
+        
+
         self.llm_memory = InMemorySaver()
         self.df = df
         self.target = target
@@ -58,7 +92,9 @@ class DataScientist:
         self.session = random.randint(100000, 999999)
         self.config = {"configurable": {"thread_id": self.session}}
         self.optuna_metric = optuna_metric
+        self.optuna_trials = optuna_trials
         self.task_type = task_type
+        self.experiment_name = experiment_name
         self.system_prompt = """
 ##Your Persona: 
 You are AI DataScientist Agent, a world-class data scientist and machine learning architect. You possess deep, first-principles knowledge of algorithms, combined with a pragmatic, battle-tested approach to building and deploying real-world ML systems using Python. 
@@ -180,6 +216,13 @@ The behavior of the library is controlled by a central configuration dictionary 
             name="data_scientist_agent",
         )
 
+
+        # 4. Get Code from LLM
+        print("Saying hello to AI DataScientist...\n")
+        response = self.agent.invoke({"messages": [HumanMessage(content="Hello!")]}, config=self.config)
+        self._final_message_text(response)
+        print(self._final_message_text(response))
+
     def _final_message_text(self, result: Dict[str, Any]) -> str:
         try:
             messages = result.get("messages") or []
@@ -205,7 +248,7 @@ The behavior of the library is controlled by a central configuration dictionary 
             pass
         return str(result)
 
-    def analyze(self):
+    def run_analysis(self):
 
         if self.X is None or self.y is None:
             raise ValueError("X and y must be set before calling analyze.")
@@ -215,10 +258,15 @@ The behavior of the library is controlled by a central configuration dictionary 
         if self.run_config is None:
             raise ValueError("run_config must be set before calling analyze.")
         
-        self.psml = psML(config=self.run_config, X=self.X, y=self.y)
+        self.psml = psML(config=self.run_config, X=self.X, y=self.y, experiment_name=self.experiment_name)
         
         print("Optimizing models...")
         self.psml.optimize_all_models()
+        
+
+    def run_analysis_ensamble(self):
+
+        self._configuring_psml()
         
         print("Building Ensembles...")
         self.psml.build_ensemble_cv()
@@ -239,6 +287,7 @@ The behavior of the library is controlled by a central configuration dictionary 
         report.correlation_analysis()
 
         optuna_metrics_info = f"""The optuna_metric is: '{self.optuna_metric}'""" if self.optuna_metric else ""
+        optuna_trials_info = f"""Suggested trails for optuna is: '{self.optuna_trials}'""" if self.optuna_trials else ""
         task_type_info = f"""The task_type is: '{self.task_type}'""" if self.task_type else ""
         
         summary = []
@@ -265,6 +314,8 @@ The target column is: '{self.target}'
 {task_type_info}
 
 {optuna_metrics_info}
+
+{optuna_trials_info}
 
 Here is an analysis of the dataset:
 {summary}
@@ -636,14 +687,9 @@ Write the code now.
             self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
         from psai.config import CONFIG as MODELS_CONFIG
-        
-        
-        optuna_trials = 10                                      # Number of trials for Optuna hyperparameter optimization
-        optuna_n_jobs = 1                                       # Number of parallel Optuna jobs (studies running at once)
-        optuna_metric = 'rmse_safe'                             # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
-        
+
+        optuna_n_jobs = 1        
         cpu_count = os.cpu_count()
-                               
         model_n_jobs = int(cpu_count / optuna_n_jobs)           # Number of threads per model (CPU cores / optuna jobs)
         
         import torch
@@ -909,25 +955,6 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
             self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
         from psai.config import CONFIG as MODELS_CONFIG
-    
-        # Stacking configuration
-        STACKING_CONFIG = {
-            'cv_enabled': False,                        # Enable stacking for Cross-Validation models
-            'cv_folds': 5,                              # Folds for stacking CV (if not using prefit)
-            'final_enabled': False,                     # Enable stacking for the final model
-            'meta_model': 'lightgbm',                   # The model used to aggregate base model predictions
-            'use_features': True,                       # If True, feeds original features + predictions to meta-model
-            'prefit': True,                             # If True, uses existing trained models (faster). If False, retrains.
-        }
-
-        VOTING_CONFIG = {
-            'cv_enabled': False,                        # Enable voting ensemble for Cross-Validation models
-            'final_enabled': False,                     # Enable voting ensemble for the final model
-            'use_features': True,                       # (Note: Voting usually just averages predictions, this flag might be custom logic)
-            'prefit': True,                             # If True, uses already trained models.
-        }
-
-        
 
         ensamble_prompt = f"""
 Your task is to enable/disable ensamble models (stacking / voting) and tune parameters for ensamble models for analyzed dataset.
@@ -935,23 +962,27 @@ Your task is to enable/disable ensamble models (stacking / voting) and tune para
 The ensamble config default is (json format):
 ===
 ENSAMBLE_CONFIG = {{
-    'stacking': { json.dumps(STACKING_CONFIG, indent=10) },
-    'voting': { json.dumps(VOTING_CONFIG, indent=10) }
+    'stacking': { json.dumps(CONFIG['stacking'], indent=10) },
+    'voting': { json.dumps(CONFIG['voting'], indent=10) }
 }}
 
 Params Stacking:
-'cv_enabled': bool,          # Enable stacking for Cross-Validation models
-'cv_folds': int,             # Folds for stacking CV (if not using prefit)
-'final_enabled': bool,       # Enable stacking for the final model
-'meta_model': str,           # The model used to aggregate base model predictions
-'use_features': bool,        # If True, feeds original features + predictions to meta-model
-'prefit': bool,              # If True, uses existing trained models (faster). If False, retrains.
+'cv_enabled': bool,                                                             # Enable stacking on models from Optuna Cross-Validation best trial if choosen eg. lightbm stacking is builded on all lightbm models from best cv trial during optuna optimalization 
+'cv_folds': int,                                                                # Folds for stacking CV (if not using prefit)
+'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for stacking CV
+'final_enabled': bool,                                                          # Enable stacking for the final model
+'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for stacking final models
+'meta_model': str,                                                              # The model used to aggregate base model predictions
+'use_features': bool,                                                           # If False the meta-model will only learn from the predictions of the base models, not the original features.
+'prefit': bool,                                                                 # If True, uses existing trained models (faster). If False, retrains.
 
 Params Voting:
-'cv_enabled': bool,          # Enable voting ensemble for Cross-Validation models
-'final_enabled': bool,       # Enable voting ensemble for the final model
-'use_features': bool,        # (Note: Voting usually just averages predictions, this flag might be custom logic)
-'prefit': bool,              # If True, uses already trained models.
+'cv_enabled': bool,                                                             # Enable voting on finals models builded during optuna optimalization 
+'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for voting CV
+'final_enabled': bool,                                                          # Enable voting ensemble for the final model
+'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for voting final models
+'use_features': bool,                                                           # If False the meta-model will only learn from the predictions of the base models, not the original features.
+'prefit': bool,                                                                 # If True, uses existing trained models (faster). If False, retrains.
 
 
 ===
@@ -1117,16 +1148,11 @@ Scores for models - metrics from models config:
         print(" STEP 5: Model Selection & Configuration ")
         print("="*40 + "\n")
         self.ai_models_config = self.consult_models(execute_code=execute_code)
-
-        # 6. Ensamble Configuration
-        print("\n" + "="*40)
-        print(" STEP 6: Ensamble Configuration ")
-        print("="*40 + "\n")
-        self.ai_ensamble_config = self.consult_ensamble(execute_code=execute_code)
+       
 
         # 7. Configuration Merging
         print("\n" + "="*40)
-        print(" STEP 7: Models to run ... ")
+        print(" STEP 6: Models to run ... ")
         print("="*40 + "\n")
 
         for model_name, model_config_details in self.ai_models_config.items():
@@ -1135,18 +1161,31 @@ Scores for models - metrics from models config:
 
         # 8. Execution
         print("\n" + "="*40)
-        print(" STEP 8: Model Training & Optimization ")
+        print(" STEP 7: Model Training & Optimization ")
         print("="*40 + "\n")
-        self.analyze()
+        self.run_analysis()
         
+        # 9. Results
         print("\n" + "="*40)
-        print(" Final Scores ")
+        print(" STEP 8: Results for models ")
         print("="*40 + "\n")
-        self.psml.scores()
+        self.consult_results()
+
+        # 6. Ensamble Configuration
+        print("\n" + "="*40)
+        print(" STEP 9: Ensamble Configuration ")
+        print("="*40 + "\n")
+        self.consult_ensamble(execute_code=execute_code)
+
+        # 8. Execution
+        print("\n" + "="*40)
+        print(" STEP 10: Ensamble Training & Optimization")
+        print("="*40 + "\n")
+        self.run_analysis_ensamble()
 
         # 9. Results
         print("\n" + "="*40)
-        print(" STEP 9: Results ")
+        print(" STEP 11: Results for models + ensamble")
         print("="*40 + "\n")
         self.consult_results()
 
@@ -1177,7 +1216,10 @@ Scores for models - metrics from models config:
             self.run_config['stacking'] = self.ai_ensamble_config['stacking']
             self.run_config['voting'] = self.ai_ensamble_config['voting']
 
-        self.psml = psML(self.run_config)
+        if self.psml == None:
+            self.psml = psML(self.run_config, X=self.X, y=self.y, experiment_name=self.experiment_name)
+        else:
+            self.psml.config = self.run_config
 
     def save_report(self, filename: str = "report.html"):
         """

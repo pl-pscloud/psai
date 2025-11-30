@@ -1,4 +1,6 @@
 import optuna
+import mlflow
+from optuna.integration.mlflow import MLflowCallback
 import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
@@ -9,11 +11,12 @@ import os
 import logging
 import lightgbm as lgb
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
+import time
 
 # Configure logger
 logger = logging.getLogger(__name__)
 if not logger.hasHandlers():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier, RandomForestRegressor, RandomForestClassifier
 from sklearn.linear_model import Ridge, RidgeClassifier
@@ -45,7 +48,7 @@ class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
     """
-    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[Union[pd.Series, pd.DataFrame]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[Union[pd.Series, pd.DataFrame]] = None, experiment_name: Optional[str] = None):
         self.models: Dict[str, Any] = {}
         
         if config is None:
@@ -117,6 +120,26 @@ class psML:
             reduction_factor=3
         )
         self.sampler = optuna.samplers.TPESampler(seed=42)
+
+        self.mlflow_experiment_name = None
+        self.mlflow_experiment_id = None
+
+        if experiment_name or self.config.get('mlflow', {}).get('enabled', True):
+
+            # MLflow setup
+            if experiment_name:
+                self.mlflow_experiment_name = experiment_name
+            elif self.config.get('mlflow', {}).get('enabled', True):
+                self.mlflow_experiment_name = self.config.get('mlflow', {}).get('experiment_name', f"psai_{time.strftime('%Y%m%d%H%M%S')}")
+            
+            self.mlflow_tracking_uri = self.config.get('mlflow', {}).get('tracking_uri', None)
+            
+            if self.mlflow_tracking_uri:
+                mlflow.set_tracking_uri(self.mlflow_tracking_uri)
+            
+            if self.mlflow_experiment_name:
+                mlflow.set_experiment(self.mlflow_experiment_name)
+                self.mlflow_experiment_id = mlflow.get_experiment_by_name(self.mlflow_experiment_name).experiment_id
 
     def save(self, filepath: str) -> None:
         """Save the pSML object to a file using pickle"""
@@ -536,7 +559,7 @@ class psML:
             if self.config['dataset']['verbose'] > 0:
                 logger.info(f'===============  {model_name} training - trial {trial.number+1} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
             if self.config['dataset']['verbose'] >= 2:
-                logger.info(f'Optune used params:\n{params}')
+                logger.info(f'Optuna used params:\n{params}')
 
             split = self.config['dataset']['cv_folds']
             scores = 0
@@ -642,11 +665,21 @@ class psML:
             sampler=self.sampler
         )
         
+        # Custom MLflow Callback for Optuna
+        if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
+            def logging_callback_mlflow(study, frozen_trial):
+                with mlflow.start_run(run_name=f"{model_name}_{frozen_trial.number}", experiment_id=self.mlflow_experiment_id, tags={"model_name": model_name}):
+                    mlflow.log_params(frozen_trial.params)
+                    if frozen_trial.value is not None:
+                        mlflow.log_metric(self.config['models'][model_name]['optuna_metric'], frozen_trial.value)
+                    mlflow.set_tag("state", frozen_trial.state.name)
+
         study.optimize(
             objective, 
             n_trials=max(1, self.config['models'][model_name]['optuna_trials']), 
             timeout=self.config['models'][model_name].get('optuna_timeout', None),
-            n_jobs=self.config['models'][model_name]['optuna_n_jobs']
+            n_jobs=self.config['models'][model_name]['optuna_n_jobs'],
+            callbacks=[logging_callback_mlflow if self.mlflow_experiment_name else None]
         )
 
         # Store results
@@ -694,6 +727,28 @@ class psML:
             'score': final_score
         }
         logger.info(f'===============  {model_name} test score: {final_score} =============')
+
+        # Log final model to MLflow
+        if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
+            with mlflow.start_run(run_name=f"final_{model_name}", experiment_id=self.mlflow_experiment_id, tags={"model_name": model_name}):
+                mlflow.log_params(final_params)
+                mlflow.log_metric(self.config['models'][model_name]['optuna_metric'], final_score)
+                mlflow.log_metric("cv_score", self.models[model_name]['cv_score'])
+            
+                # Log model artifact
+                try:
+                    if model_name == 'lightgbm':
+                        mlflow.lightgbm.log_model(clf_final, model_name)
+                    elif model_name == 'xgboost':
+                        mlflow.xgboost.log_model(clf_final, model_name)
+                    elif model_name == 'catboost':
+                        mlflow.catboost.log_model(clf_final, model_name)
+                    elif model_name == 'random_forest':
+                        mlflow.sklearn.log_model(clf_final, model_name)
+                    elif model_name == 'pytorch':
+                        mlflow.pytorch.log_model(clf_final, model_name)
+                except Exception as e:
+                    logger.warning(f"Failed to log model to MLflow: {e}")
 
     def _get_estimator(self, model_name: str) -> Optional[Any]:
         """Helper to get estimator instance for stacking"""
@@ -747,28 +802,48 @@ class psML:
         final_estimator = self._get_estimator(meta_model_name)
         
         base_estimators = []
-        for model_name in self.config['models']:
-            if self.config['models'][model_name]['enabled']:
+        # Determine which models to use based on config
+        if use_cv_models:
+            models_to_use = self.config['stacking'].get('cv_models', [])
+            # Fallback if empty or not present: use all enabled models
+            if not models_to_use:
+                models_to_use = [m for m in self.config['models'] if self.config['models'][m]['enabled']]
+        else:
+            models_to_use = self.config['stacking'].get('final_models', [])
+            # Fallback if empty or not present: use all enabled models
+            if not models_to_use:
+                models_to_use = [m for m in self.config['models'] if self.config['models'][m]['enabled']]
+
+        for model_name in models_to_use:
+            # Ensure model is enabled in general config and exists in self.models
+            if self.config['models'].get(model_name, {}).get('enabled', False) and model_name in self.models:
                 if use_cv_models:
                     # Add all fold models
-                    for i in range(len(self.models[model_name]['cv_model'])):
-                        model = self.models[model_name]['cv_model'][f'fold{i+1}']['model']
-                        if model_name == 'xgboost':
-                            model.named_steps[model_name].set_params(early_stopping_rounds=None)
-                        base_estimators.append((f"{model_name}_{i+1}", model))
+                    if 'cv_model' in self.models[model_name] and self.models[model_name]['cv_model']:
+                        for i in range(len(self.models[model_name]['cv_model'])):
+                            fold_key = f'fold{i+1}'
+                            if fold_key in self.models[model_name]['cv_model']:
+                                model = self.models[model_name]['cv_model'][fold_key]['model']
+                                if model_name == 'xgboost':
+                                    model.named_steps[model_name].set_params(early_stopping_rounds=None)
+                                base_estimators.append((f"{model_name}_{i+1}", model))
                 else:
                     # Add final model
-                    model = self.models[f'final_model_{model_name}']['model']
-                    if model_name == 'xgboost':
-                        model.named_steps[model_name].set_params(early_stopping_rounds=None)
-                    base_estimators.append((model_name, model))
+                    final_key = f'final_model_{model_name}'
+                    if final_key in self.models:
+                        model = self.models[final_key]['model']
+                        if model_name == 'xgboost':
+                            model.named_steps[model_name].set_params(early_stopping_rounds=None)
+                        base_estimators.append((model_name, model))
+        print(f"Base estimators: {base_estimators}")
 
         cls = StackingClassifier if self.config['dataset']['task_type'] == 'classification' else StackingRegressor
         st = cls(
             estimators=base_estimators,
             final_estimator=final_estimator,
             cv=self.config['stacking']['cv_folds'] if not self.config['stacking']['prefit'] else 'prefit',
-            n_jobs=-1
+            n_jobs=-1,
+            passthrough=self.config['stacking']['use_features']
         )
         
         print(f"Training Stacking ({suffix})...")
@@ -793,17 +868,36 @@ class psML:
         suffix = "cv" if use_cv_models else "final"
         base_estimators = []
         
-        for model_name in self.config['models']:
-            if self.config['models'][model_name]['enabled']:
+        # Determine which models to use based on config
+        if use_cv_models:
+            models_to_use = self.config['voting'].get('cv_models', [])
+            # Fallback if empty or not present: use all enabled models
+            if not models_to_use:
+                models_to_use = [m for m in self.config['models'] if self.config['models'][m]['enabled']]
+        else:
+            models_to_use = self.config['voting'].get('final_models', [])
+            # Fallback if empty or not present: use all enabled models
+            if not models_to_use:
+                models_to_use = [m for m in self.config['models'] if self.config['models'][m]['enabled']]
+
+        for model_name in models_to_use:
+            # Ensure model is enabled in general config and exists in self.models
+            if self.config['models'].get(model_name, {}).get('enabled', False) and model_name in self.models:
                 if use_cv_models:
-                    for i in range(len(self.models[model_name]['cv_model'])):
-                        base_estimators.append(
-                            (f"{model_name}_{i+1}", self.models[model_name]['cv_model'][f'fold{i+1}']['model'])
-                        )
+                    if 'cv_model' in self.models[model_name] and self.models[model_name]['cv_model']:
+                        for i in range(len(self.models[model_name]['cv_model'])):
+                            fold_key = f'fold{i+1}'
+                            if fold_key in self.models[model_name]['cv_model']:
+                                base_estimators.append(
+                                    (f"{model_name}_{i+1}", self.models[model_name]['cv_model'][fold_key]['model'])
+                                )
                 else:
-                    base_estimators.append(
-                        (model_name, self.models[f'final_model_{model_name}']['model'])
-                    )
+                    final_key = f'final_model_{model_name}'
+                    if final_key in self.models:
+                        base_estimators.append(
+                            (model_name, self.models[final_key]['model'])
+                        )
+        print(f"Base estimators: {base_estimators}")
 
         cls = VotingClassifier if self.config['dataset']['task_type'] == 'classification' else VotingRegressor
         kwargs = {'voting': 'soft'} if self.config['dataset']['task_type'] == 'classification' else {}

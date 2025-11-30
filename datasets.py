@@ -10,7 +10,7 @@ from IPython.display import Markdown, display
 import markdown
 
 class EDAReport:
-    def __init__(self, df: pd.DataFrame, target: str = None):
+    def __init__(self, df: pd.DataFrame, target: str = None, plots: bool = False):
         """
         Initialize the EDAReport class.
         
@@ -20,6 +20,7 @@ class EDAReport:
         """
         self.df = df
         self.target = target
+        self.plots = plots
         self.numerical_cols = df.select_dtypes(include=[np.number]).columns.tolist()
         self.categorical_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
         
@@ -107,32 +108,33 @@ class EDAReport:
         desc = self.df[self.numerical_cols].describe().T
         self._add_table(desc, "Descriptive Statistics")
         
-        for col in self.numerical_cols:
-            fig, axes = plt.subplots(1, 3, figsize=(18, 5))
-            fig.suptitle(f'Analysis of {col}', fontsize=16)
-            
-            # Histogram with KDE
-            try:
-                sns.histplot(self.df[col], kde=True, ax=axes[0], color='skyblue')
-            except Exception as e:
-                sns.histplot(self.df[col], kde=False, ax=axes[0], color='skyblue')
-                print(f"Warning: KDE failed for {col}, showing histogram only.")
-            axes[0].set_title('Distribution')
-            
-            # Box Plot
-            sns.boxplot(x=self.df[col], ax=axes[1], color='lightgreen')
-            axes[1].set_title('Box Plot')
-            
-            # QQ Plot
-            try:
-                stats.probplot(self.df[col].dropna(), dist="norm", plot=axes[2])
-                axes[2].set_title('Q-Q Plot')
-            except:
-                axes[2].text(0.5, 0.5, "QQ Plot Failed", ha='center')
-            
-            plt.tight_layout()
-            self._add_plot(fig, f"Numerical Analysis: {col}")
-            plt.close(fig)
+        if self.plots:
+            for col in self.numerical_cols:
+                fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+                fig.suptitle(f'Analysis of {col}', fontsize=16)
+                
+                # Histogram with KDE
+                try:
+                    sns.histplot(self.df[col], kde=True, ax=axes[0], color='skyblue')
+                except Exception as e:
+                    sns.histplot(self.df[col], kde=False, ax=axes[0], color='skyblue')
+                    print(f"Warning: KDE failed for {col}, showing histogram only.")
+                axes[0].set_title('Distribution')
+                
+                # Box Plot
+                sns.boxplot(x=self.df[col], ax=axes[1], color='lightgreen')
+                axes[1].set_title('Box Plot')
+                
+                # QQ Plot
+                try:
+                    stats.probplot(self.df[col].dropna(), dist="norm", plot=axes[2])
+                    axes[2].set_title('Q-Q Plot')
+                except:
+                    axes[2].text(0.5, 0.5, "QQ Plot Failed", ha='center')
+                
+                plt.tight_layout()
+                self._add_plot(fig, f"Numerical Analysis: {col}")
+                plt.close(fig)
 
     def categorical_analysis(self):
         """Analyzes categorical columns."""
@@ -144,7 +146,7 @@ class EDAReport:
             unique_count = self.df[col].nunique()
             self._add_text(f"**Column: {col}** | Unique Values: {unique_count}")
             
-            if unique_count < 20:
+            if unique_count < 20 and self.plots:
                 fig = plt.figure(figsize=(10, 5))
                 ax = sns.countplot(y=self.df[col], hue=self.df[col], order=self.df[col].value_counts().index, palette='viridis', legend=False)
                 plt.title(f'Distribution of {col}')
@@ -167,12 +169,13 @@ class EDAReport:
         self._add_table(corr, "Correlation Matrix")
         mask = np.triu(np.ones_like(corr, dtype=bool))
         
-        fig = plt.figure(figsize=(12, 10))
-        sns.heatmap(corr, mask=mask, annot=True, fmt=".2f", cmap='coolwarm', square=True, linewidths=.5, cbar_kws={"shrink": .5})
-        plt.title('Correlation Matrix (Numerical Features)')
-        plt.tight_layout()
-        self._add_plot(fig, "Correlation Matrix")
-        plt.close(fig)
+        if self.plots:
+            fig = plt.figure(figsize=(12, 10))
+            sns.heatmap(corr, mask=mask, annot=True, fmt=".2f", cmap='coolwarm', square=True, linewidths=.5, cbar_kws={"shrink": .5})
+            plt.title('Correlation Matrix (Numerical Features)')
+            plt.tight_layout()
+            self._add_plot(fig, "Correlation Matrix")
+            plt.close(fig)
 
     def target_analysis(self):
         """Analyzes relationship with target."""
@@ -192,36 +195,38 @@ class EDAReport:
         
         if is_target_numeric:
             self._add_text(f"Target '{self.target}' is Numerical.")
-            fig = plt.figure(figsize=(10, 6))
-            sns.histplot(self.df[self.target], kde=True, color='purple')
-            plt.title(f'Target Distribution: {self.target}')
-            self._add_plot(fig, "Target Distribution")
-            plt.close(fig)
-            
-            for col in self.numerical_cols:
-                if col == self.target: continue
+            if self.plots:
                 fig = plt.figure(figsize=(10, 6))
-                # Sample if data is too large for scatter
-                plot_df = self.df.sample(min(10000, len(self.df))) if len(self.df) > 10000 else self.df
-                sns.regplot(x=plot_df[col], y=plot_df[self.target], scatter_kws={'alpha':0.5}, line_kws={'color':'red'})
-                plt.title(f'{col} vs {self.target}')
-                self._add_plot(fig, f"{col} vs Target")
+                sns.histplot(self.df[self.target], kde=True, color='purple')
+                plt.title(f'Target Distribution: {self.target}')
+                self._add_plot(fig, "Target Distribution")
                 plt.close(fig)
+                
+                for col in self.numerical_cols:
+                    if col == self.target: continue
+                    fig = plt.figure(figsize=(10, 6))
+                    # Sample if data is too large for scatter
+                    plot_df = self.df.sample(min(10000, len(self.df))) if len(self.df) > 10000 else self.df
+                    sns.regplot(x=plot_df[col], y=plot_df[self.target], scatter_kws={'alpha':0.5}, line_kws={'color':'red'})
+                    plt.title(f'{col} vs {self.target}')
+                    self._add_plot(fig, f"{col} vs Target")
+                    plt.close(fig)
                 
         else:
             self._add_text(f"Target '{self.target}' is Categorical.")
-            fig = plt.figure(figsize=(8, 5))
-            sns.countplot(x=self.df[self.target], hue=self.df[self.target], palette='pastel', legend=False)
-            plt.title(f'Target Distribution: {self.target}')
-            self._add_plot(fig, "Target Distribution")
-            plt.close(fig)
-            
-            for col in self.numerical_cols:
-                fig = plt.figure(figsize=(10, 6))
-                sns.kdeplot(data=self.df, x=col, hue=self.target, fill=True, common_norm=False, palette='crest')
-                plt.title(f'{col} Distribution by {self.target}')
-                self._add_plot(fig, f"{col} by Target")
+            if self.plots:
+                fig = plt.figure(figsize=(8, 5))
+                sns.countplot(x=self.df[self.target], hue=self.df[self.target], palette='pastel', legend=False)
+                plt.title(f'Target Distribution: {self.target}')
+                self._add_plot(fig, "Target Distribution")
                 plt.close(fig)
+                
+                for col in self.numerical_cols:
+                    fig = plt.figure(figsize=(10, 6))
+                    sns.kdeplot(data=self.df, x=col, hue=self.target, fill=True, common_norm=False, palette='crest')
+                    plt.title(f'{col} Distribution by {self.target}')
+                    self._add_plot(fig, f"{col} by Target")
+                    plt.close(fig)
 
     def _generate_target_summary_text(self):
         """Generates a text summary of the target analysis."""
