@@ -281,20 +281,20 @@ predictions = loaded_pipeline.models['ensemble_stacking_cv']['model'].predict(X_
 
 import os
 
-optuna_trials = 2                                   # Number of trials for Optuna hyperparameter optimization
+optuna_trials = 10                                   # Number of trials for Optuna hyperparameter optimization
 optuna_n_jobs = 1                                   # Number of parallel Optuna jobs (studies running at once)
 optuna_metric = 'rmse_safe'                         # Metric to optimize during Optuna trials (e.g., 'rmse', 'auc')
 model_n_jobs = int(os.cpu_count() / optuna_n_jobs)  # Number of threads per model (CPU cores / optuna jobs)
 device = 'gpu'                                      # Device to use for training ('cpu' or 'gpu')
 verbose = 2                                         # Verbosity level (0: silent, 1: minimal, 2: detailed)
 models_enabled = {                                  # Master toggle to enable/disable specific models
-    'lightgbm': True,
-    'xgboost': True,
-    'catboost': True,
-    'random_forest': True,
-    'pytorch': True,
-    'stacking': True,
-    'voting': True,
+    'lightgbm': False,
+    'xgboost': False,
+    'catboost': False,
+    'random_forest': False,
+    'pytorch': False,
+    'stacking': False,
+    'voting': False,
 }
 
 # Dataset configuration
@@ -310,35 +310,40 @@ DATASET_CONFIG = {
     'verbose': verbose          # Verbosity level inherited from global setting
 }
 
+MLFLOW_CONFIG = {
+    'enabled': False,
+    'experiment_name': 'Experiment Optuna Tuner',
+    'tracking_uri': 'mlruns'
+}
+
 # Preprocessor configuration for create_preprocessor function
 # Defines how different column types are handled in the pipeline
 PREPROCESSOR_CONFIG = {
-    'numerical': {                  # Standard numerical features
-        'imputer': 'mean',          # Strategy for missing values: 'mean', 'median', 'most_frequent'
-        'scaler': 'minmax',         # Scaling method: 'standard', 'minmax', 'robust', 'none'
+    "numerical": {
+        "imputer": "mean",
+        "scaler": "standard"
     },
-    'skewed': {                     # Numerical features with high skewness
-        'imputer': 'mean',  
-        'scaler': 'log',            # 'log' applies log1p transformation to reduce skew
+    "skewed": {
+        "imputer": "median",
+        "scaler": "log"
     },
-    'outlier': {                    # Numerical features with detected outliers
-        'imputer': 'mean',  
-        'scaler': 'log',            # Using log scaling can also help dampen outlier effects
+    "outlier": {
+        "imputer": "median",
+        "scaler": "log"
     },
-    'low_cardinality': {            # Categorical features with few unique values
-        'imputer': 'most_frequent',  
-        'encoder': 'onehot',        # 'onehot' encoding is efficient for low cardinality
-        'scaler': 'none',   
+    "low_cardinality": {
+        "imputer": "most_frequent",
+        "encoder": "onehot",
+        "scaler": "none"
     },
-    'high_cardinality': {           # Categorical features with many unique values
-        'imputer': 'most_frequent',  
-        'encoder': 'target_0.5',    # 'target_0.5' implies Target Encoding (often with smoothing)
-        'scaler': 'standard',       # Scaling encoded values (useful for linear models/NNs)
+    "high_cardinality": {
+        "imputer": "most_frequent",
+        "encoder": "target",
+        "scaler": "none"
     },
-    'dimension_reduction': {        # Options for reducing feature space
-        'enabled': False,           # Toggle dimension reduction on/off
-        'method': 'none',           # Method: 'pca', 'svd', 'none'
-    },
+    "dimension_reduction": {
+        "method": "none"
+    }
 }
 
 # Model configurations
@@ -347,14 +352,15 @@ MODELS_CONFIG = {
         'enabled': models_enabled['lightgbm'], # Enable/Disable LightGBM
         'optuna_trials': optuna_trials,        # Number of hyperparameter search trials
         'optuna_timeout': 3600,                # Max time (seconds) for optimization
-        'optuna_metric': optuna_metric,        # Metric to optimize
+        'optuna_metric': optuna_metric,        # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': optuna_n_jobs,        # Parallel jobs for Optuna
         'params': {                            # Fixed parameters (not optimized)
             'verbose': verbose,
-            'objective': 'rmse',               # Learning objective (e.g., 'rmse', 'binary')
+            'objective': 'rmse',               # Learning objective (e.g., regression:['mse','mae'], classification:['binary','multiclass'])
             'device': device,                  # Hardware acceleration ('cpu' or 'gpu')
-            'eval_metric': 'rmse',             # Metric used for early stopping
-            'num_threads': model_n_jobs        # Threads for model training
+            'eval_metric': 'rmse',             # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
+            'num_threads': model_n_jobs,       # Threads for model training
+            
         },
         'optuna_params': {                    # Hyperparameter search space
             'boosting_type': {'type': 'categorical', 'choices': ['gbdt', 'goss']},
@@ -367,21 +373,22 @@ MODELS_CONFIG = {
             'min_split_gain': {'type': 'float', 'low': 1e-8, 'high': 1.0, 'log': True},
             'max_depth': {'type': 'int', 'low': 3, 'high': 20},
             'bagging_fraction': {'type': 'float', 'low': 0.4, 'high': 1.0},
-            'bagging_freq': {'type': 'int', 'low': 1, 'high': 7}
+            'bagging_freq': {'type': 'int', 'low': 1, 'high': 7},
+            'num_class': 10,                   # Number of classes for multiclass classification (if task_type is 'classification')
         }
     },
     'xgboost': {
-        'enabled': models_enabled['xgboost'],
-        'optuna_trials': optuna_trials,
-        'optuna_timeout': 3600,
-        'optuna_metric': optuna_metric,
-        'optuna_n_jobs': optuna_n_jobs,
+        'enabled': models_enabled['xgboost'],       # Enable/Disable XGBoost models
+        'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,             # Number of jobs to run in parallel
         'params': {
             'verbose': verbose,
-            'objective': 'reg:squarederror',
-            'device': device,
-            'eval_metric': 'rmse',
-            'nthread': model_n_jobs
+            'objective': 'reg:squarederror',        # Learning objective (e.g., regression:['reg:squarederror','reg:absoluteerror'], classification:['binary:logistic','multi:softprob'])
+            'device': device,                       # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'rmse',                  # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
+        'nthread': model_n_jobs,                    # Threads for model training
         },
         'optuna_params': {                    # Hyperparameter search space
             'booster': {'type': 'categorical', 'choices': ['gbtree']},
@@ -398,17 +405,17 @@ MODELS_CONFIG = {
         }
     },
     'catboost': {
-        'enabled': models_enabled['catboost'],
-        'optuna_trials': optuna_trials,
-        'optuna_timeout': 3600, # Time budget in seconds (1 hour)
-        'optuna_metric': optuna_metric,
-        'optuna_n_jobs': optuna_n_jobs*5,
+        'enabled': models_enabled['catboost'],   # Enable/Disable CatBoost models
+        'optuna_trials': optuna_trials,         # Number of trials for Optuna hyperparameter optimization
+        'optuna_timeout': 3600,                 # Time budget in seconds (1 hour)
+        'optuna_metric': optuna_metric,         # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
+        'optuna_n_jobs': optuna_n_jobs,         # Number of parallel Optuna jobs (studies running at once)
         'params': {
             'verbose': verbose,
-            'objective': 'RMSE',
-            'device': device,
-            'eval_metric': 'RMSE',
-            'thread_count': model_n_jobs
+            'objective': 'RMSE',                # Learning objective (e.g., regression:['RMSE','MAE'], classification:['Logloss','MultiClass'])
+            'device': device,                   # Hardware acceleration ('cpu' or 'gpu')
+            'eval_metric': 'RMSE',              # Metric used for early stopping regression:['mse','mae'], classification:['binary','multiclass'])
+            'thread_count': model_n_jobs,       # Threads for model training
         },
         'optuna_params': {                    # Hyperparameter search space
             'n_estimators': {'type': 'int', 'low': 100, 'high': 3000},
@@ -431,7 +438,7 @@ MODELS_CONFIG = {
         'enabled': models_enabled['random_forest'], # Enable/Disable Random Forest models
         'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
         'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-        'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': model_n_jobs,              # Number of jobs to run in parallel
         'params': {
             'verbose': verbose,
@@ -451,20 +458,21 @@ MODELS_CONFIG = {
         'enabled': models_enabled['pytorch'],       # Enable/Disable PyTorch models
         'optuna_trials': optuna_trials,             # Number of trials for Optuna hyperparameter optimization
         'optuna_timeout': 3600,                     # 3600 seconds = 1 hour 
-        'optuna_metric': optuna_metric,             # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+        'optuna_metric': optuna_metric,             # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
         'optuna_n_jobs': 1,                         # Number of jobs to run in parallel
         'params': {
             "train_max_epochs": 50,                 # Number of epochs to train for
             "train_patience": 5,                    # Number of epochs to wait before early stopping
             "final_max_epochs": 1000,               # Number of epochs to train for
             "final_patience": 20,                   # Number of epochs to wait before early stopping
-            "objective": "mse",                     # 'mae', 'mse', 'rmse', 'rmsle', 'r2', 'mape'
+            "objective": "mse",                     # objective (e.g., regression:['mse','mae','huber','rmsle','mape'], classification:['bce','bcelogit','crossentropy']
             "device": device,                       # 'cpu', 'gpu'
             'verbose': verbose,
-            'num_threads': model_n_jobs if model_n_jobs > 0 else os.cpu_count(),
+            'embedding_info': ['time_of_day'],      #       
+            'num_threads': model_n_jobs,
         },
-        'optuna_params': {                         # Hyperparameter search space for PyTorch models
-            'model_type': {'type': 'categorical', 'choices': ['mlp', 'ft_transformer']},        #['mlp', 'ft_transformer'] model type
+        'optuna_params': {                                                                      # Hyperparameter search space for PyTorch models
+            'model_type': {'type': 'categorical', 'choices': ['mlp','ft_transformer']},                          #['mlp', 'ft_transformer'] model type
             'optimizer_name': {'type': 'categorical', 'choices': ['adam']},                     #['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] optimizer name
             'learning_rate': {'type': 'categorical', 'choices': [0.01]},                        #['0.01', '0.001'] learning rate
             'batch_size': {'type': 'categorical', 'choices': [64, 128, 256]},                   #['64', '128', '256'] batch size
@@ -472,28 +480,18 @@ MODELS_CONFIG = {
             'net': {'type': 'categorical', 'choices': [                                         
                 # MLP ReLU without batch or layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'relu', 'norm': None},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 64, 'activation': 'relu', 'norm': None},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 32, 'activation': 'relu', 'norm': None},
+                    {'type': 'dense', 'out_features': 16, 'activation': 'relu', 'norm': None},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
                 # MLP GELU with layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'gelu', 'norm': 'batch_norm'},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 64, 'activation': 'gelu', 'norm': 'batch_norm'},
-                    {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
+                    {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
                 # MLP Swish/SILU with layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'swish', 'norm': 'layer_norm'},
-                    {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 64, 'activation': 'swish', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'},
@@ -515,24 +513,26 @@ MODELS_CONFIG = {
 }
 
 # Stacking configuration
-# Stacking configuration
 STACKING_CONFIG = {
-    'cv_enabled': models_enabled['stacking'],   # Enable stacking during Cross-Validation
-    'cv_folds': 5,                              # Folds for stacking CV (if not using prefit)
-    'final_enabled': models_enabled['stacking'],# Enable stacking for the final model
-    'meta_model': 'lightgbm',                   # The model used to aggregate base model predictions
-    'use_features': True,                       # If True, feeds original features + predictions to meta-model
-    'prefit': True,                             # If True, uses existing trained models (faster). If False, retrains.
+    'cv_enabled': models_enabled['stacking'],                                       # Enable stacking on models from Optuna Cross-Validation best trial if choosen eg. lightbm stacking is builded on all lightbm models from best cv trial during optuna optimalization 
+    'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for stacking CV
+    'cv_folds': 5,                                                                  # Folds for stacking CV (if not using prefit)
+    'final_enabled': models_enabled['stacking'],                                    # Enable stacking for the final models
+    'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for stacking final modelss
+    'meta_model': 'lightgbm',                                                       # The model used to aggregate base model predictions
+    'use_features': False,                                                          # If False the meta-model will only learn from the predictions of the base models, not the original features.
+    'prefit': True,                                                                 # If True, uses existing trained models (faster). If False, retrains.
 }
 
 VOTING_CONFIG = {
-    'cv_enabled': models_enabled['voting'],     # Enable voting ensemble during Cross-Validation
-    'final_enabled': models_enabled['voting'],  # Enable voting ensemble for the final model
-    'use_features': True,                       # (Note: Voting usually just averages predictions, this flag might be custom logic)
-    'prefit': True,                             # If True, uses already trained models.
+    'cv_enabled': models_enabled['voting'],                                         # Enable voting on finals models builded during optuna optimalization 
+    'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for voting CV
+    'final_enabled': models_enabled['voting'],                                      # Enable voting ensemble for the final model
+    'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for voting final models
+    'use_features': False,                                                          # If False the meta-model will only learn from the predictions of the base models, not the original features.
+    'prefit': True,                                                                 # If True, uses already trained models.
 }
 
-# Output configuration
 # Output configuration
 OUTPUT_CONFIG = {
     'models_dir': 'models',         # Directory to save trained model artifacts
@@ -543,6 +543,7 @@ OUTPUT_CONFIG = {
 }
 
 CONFIG = {
+    'mlflow': MLFLOW_CONFIG,
     'dataset': DATASET_CONFIG,
     'preprocessor': PREPROCESSOR_CONFIG,
     'models': MODELS_CONFIG,
@@ -550,6 +551,7 @@ CONFIG = {
     'voting': VOTING_CONFIG,
     'output': OUTPUT_CONFIG
 }
+
 
 
 ```
