@@ -1071,7 +1071,12 @@ Scores for models - metrics from models config:
 ===
 
 **Constraints**:
--   Handle potential errors gracefully if possible.
+- Analyze results and get insights
+- Explain why that insights have sense
+- Explain the interpretation for results
+- If builded leaderboard of models show them as list not table.
+- Handle potential errors gracefully if possible.
+- 
 """
         
         # 4. Get Code from LLM

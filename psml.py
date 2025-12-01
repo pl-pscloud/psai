@@ -867,6 +867,16 @@ class psML:
         self.models[f'ensemble_stacking_{suffix}'] = {'model': st, 'score': score}
         logger.info(f'Stacking {suffix} score: {score}')
 
+        # Log stacking model to MLflow
+        if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
+            with mlflow.start_run(run_name=f"stacking_{suffix}", experiment_id=self.mlflow_experiment_id, tags={"model_name": f"stacking_{suffix}"}):
+                mlflow.log_metric(self.config['models'][ref_model]['optuna_metric'], score)
+                
+                try:
+                    mlflow.sklearn.log_model(st, f"stacking_{suffix}")
+                except Exception as e:
+                    logger.warning(f"Failed to log stacking model to MLflow: {e}")
+
     def _build_voting(self, use_cv_models: bool) -> None:
         suffix = "cv" if use_cv_models else "final"
         base_estimators = []
@@ -939,3 +949,13 @@ class psML:
         
         self.models[f'ensemble_voting_{suffix}'] = {'model': vt, 'score': score}
         logger.info(f'Voting {suffix} score: {score}')
+
+        # Log voting model to MLflow
+        if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
+            with mlflow.start_run(run_name=f"voting_{suffix}", experiment_id=self.mlflow_experiment_id, tags={"model_name": f"voting_{suffix}"}):
+                mlflow.log_metric(self.config['models'][ref_model]['optuna_metric'], score)
+                
+                try:
+                    mlflow.sklearn.log_model(vt, f"voting_{suffix}")
+                except Exception as e:
+                    logger.warning(f"Failed to log voting model to MLflow: {e}")
