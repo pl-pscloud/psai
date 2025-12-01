@@ -208,7 +208,7 @@ MODELS_CONFIG = {
                 [
                     {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
+                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
                 # MLP Swish/SILU with layer norm
                 [
@@ -216,7 +216,7 @@ MODELS_CONFIG = {
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
+                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
 
             ]},

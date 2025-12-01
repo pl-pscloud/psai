@@ -860,11 +860,11 @@ MODELS_CONFIG = MODELS_CONFIG = {{
                     {{'type': 'dropout', 'p': 0.1}},
                     {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
                 ],
-                # MLP GELU with layer norm
+                # MLP GELU with batch norm
                 [
-                    {{'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'}},
+                    {{'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'}},
                     {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}}
+                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
                 ],
                 # MLP Swish/SILU with layer norm
                 [
@@ -872,7 +872,7 @@ MODELS_CONFIG = MODELS_CONFIG = {{
                     {{'type': 'dropout', 'p': 0.1}},
                     {{'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'}},
                     {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}}
+                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
                 ],
 
             ]}},
@@ -904,6 +904,7 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
 -   When set params for catboost if choose device = 'gpu' use bootstrap_type = 'Bayesian' or 'Bernoulli'
 -   When multiclass are selected for lightgbm set num_class = x (where x is number of classes)
 -   Always choose params from scope provided in comments as it is. eg if name is 'adamw' use 'adamw' not 'adamW'
+-   For Pytorch on output layer do not use batch_layer or layer_norm.
 -   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
