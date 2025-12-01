@@ -53,8 +53,12 @@ The `DataScientist` agent leverages Large Language Models (LLMs) to automate com
 *   **Automated EDA Analysis**: Generates a textual summary of the EDA report and provides a structured analysis (Data Quality, Feature Engineering, Preprocessing, Model Selection).
 *   **Intelligent Feature Engineering**: Writes and executes Python code to create new features based on data insights.
 *   **Dynamic Configuration**: Suggests optimal `PREPROCESSOR_CONFIG` and `MODELS_CONFIG` based on the dataset characteristics.
+*   **End-to-End Automation**: Orchestrates the entire pipeline from EDA to Model Ensembling with a single method call (`end_to_end_ml_process`).
+*   **Comprehensive Reporting**: Generates a detailed HTML report (`save_report`) aggregating EDA, feature engineering logic, model configurations, and final performance metrics.
 
 ### Usage Example
+
+You need api key for LLM (Google, OpenAI, Anthropic) or use local LLM (Ollama).
 
 ```python
 from psai.datascientist import DataScientist
@@ -65,35 +69,25 @@ df = pd.read_csv('data/train.csv')
 target = 'price'
 
 # Initialize the agent
-agent = DataScientist(model_name="gemini-1.5-pro-preview")
+agent = DataScientist(
+    df=df, 
+    target=target, 
+    optuna_metric='auc', 
+    optuna_trials=20, 
+    task_type='classification', 
+    model_provider="google", 
+    model_name="gemini-3-pro-preview", 
+    api_key=api_key, 
+    experiment_name=f"{target}_google"
+    )
 
-# 1. Generate EDA Analysis & Summary
-agent.eda_summary(df, target=target)
+# Run the complete pipeline
+# This performs EDA, Feature Engineering, Preprocessing, Model Selection, Training, and Ensembling
+agent.end_to_end_ml_process(execute_code=True, save_report=True)
 
-# 2. Consult for Feature Engineering (returns transformed X, y)
-# The agent writes code to create new features, drops duplicates, etc.
-X, y = agent.consult_feature_engineering(dataset=df, target=target, execute_code=True)
-
-# 3. Get Optimized Preprocessor Config
-# The agent suggests the best imputation, scaling, and encoding strategies
-preprocessor_config = agent.consult_preprocessor(dataset=df, target=target, execute_code=True)
-
-# 4. Get Optimized Model Config
-# The agent suggests which models to run and their search spaces
-model_config = agent.consult_models(dataset=df, target=target, execute_code=True)
-
-# 5. Run the Pipeline with Agent's Suggestions
-from psai.psml import psML
-from psai.config import CONFIG
-
-# Update global config with agent's suggestions
-CONFIG['preprocessor'] = preprocessor_config
-CONFIG['models'] = model_config
-
-# Initialize and Train
-ps = psML(config=CONFIG, X=X, y=y)
-ps.optimize_all_models()
-ps.scores()
+# The agent automatically saves a report (e.g., report-price-20231027...html)
+# You can also access the trained pipeline directly:
+agent.psml.scores()
 ```
 
 ---
@@ -119,7 +113,17 @@ Defines the data source and the nature of the machine learning task.
 | `random_state` | `int` | Seed for reproducibility. | `42` |
 | `verbose` | `int` | Verbosity level (0=Silent, 1=Info, 2=Debug). | `2` |
 
-### 2. Preprocessor Configuration (`PREPROCESSOR_CONFIG`)
+### 2. MLFLOW Configuration (`MLFLOW_CONFIG`)
+
+Controls how different feature types are handled. The pipeline automatically detects feature types, but you define the strategy.
+
+| Parameter | Type | Description | Example |
+| :--- | :--- | :--- | :--- |
+| `enabled` | `bool` | Whether MLflow tracking is enabled. | `True` |
+| `experiment_name` | `str` | Name of the MLflow experiment. | `'my_experiment'` |
+| `tracking_uri` | `str` | MLflow tracking URI or local path. | `'http://localhost:5000'` or `'mlruns'` |
+
+### 3. Preprocessor Configuration (`PREPROCESSOR_CONFIG`)
 
 Controls how different feature types are handled. The pipeline automatically detects feature types, but you define the strategy.
 
@@ -149,7 +153,7 @@ Controls how different feature types are handled. The pipeline automatically det
 }
 ```
 
-### 3. Model Configuration (`MODELS_CONFIG`)
+### 4. Model Configuration (`MODELS_CONFIG`)
 
 Each model key (`lightgbm`, `xgboost`, `catboost`, `random_forest`, `pytorch`) has its own section.
 
@@ -170,7 +174,7 @@ The library uses a structured dictionary to define search spaces.
 *   **Float**: `{'type': 'float', 'low': 0.01, 'high': 1.0, 'log': True}`
 *   **Categorical**: `{'type': 'categorical', 'choices': ['option1', 'option2']}`
 
-### 4. Ensemble Configuration
+### 5. Ensemble Configuration
 
 **Stacking (`STACKING_CONFIG`)**
 | Parameter | Description |
@@ -224,7 +228,7 @@ y = train_df[[target]]
 
 # Initialize PSAI Pipeline
 # You can pass X and y directly here.
-ps = psML(config=CONFIG, X=X, y=y)
+ps = psML(config=CONFIG, X=X, y=y, experiment_name="PSAI Experiment")
 
 # Run Optimization (Optuna)
 # This will optimize all models with 'enabled': True in config
@@ -478,13 +482,13 @@ MODELS_CONFIG = {
                 ],
                 # MLP GELU with layer norm
                 [
-                    {'type': 'dense', 'out_features': 128, 'activation': 'gelu', 'norm': 'layer_norm'},
+                    {'type': 'dense', 'out_features': 128, 'activation': 'gelu', 'norm': 'batch_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 64, 'activation': 'gelu', 'norm': 'layer_norm'},
+                    {'type': 'dense', 'out_features': 64, 'activation': 'gelu', 'norm': 'batch_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
+                    {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
+                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
                 # MLP Swish/SILU with layer norm
                 [
@@ -494,7 +498,7 @@ MODELS_CONFIG = {
                     {'type': 'dropout', 'p': 0.1},
                     {'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'},
                     {'type': 'dropout', 'p': 0.1},
-                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
+                    {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
                 ],
 
             ]},
