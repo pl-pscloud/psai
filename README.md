@@ -1,18 +1,20 @@
 # psai - Machine Learning Pipeline Library
 
-**psai** is a production-ready, configurable Machine Learning pipeline designed to accelerate the development of high-performance models. It unifies state-of-the-art algorithms (LightGBM, XGBoost, CatBoost, PyTorch) into a single, cohesive interface, automating tedious tasks like feature preprocessing, hyperparameter tuning, and ensemble creation.
+**psai** is a production-ready, configurable Machine Learning pipeline designed to accelerate the development of high-performance models. It unifies state-of-the-art algorithms (LightGBM, XGBoost, CatBoost, PyTorch) into a single, cohesive interface, automating tedious tasks like feature preprocessing, hyperparameter tuning, and ensemble creation. Extended to DataScientist agent that can analyze your data, write feature engineering code, and suggest optimal configurations.
 
 ---
 
 ## 🚀 Key Features
 
 *   **🔍 Automated EDA**: Generate professional, publication-ready Exploratory Data Analysis reports (HTML/PDF) with deep insights into distributions, correlations, and target relationships.
-*   **🤖 AI Data Scientist Agent**: Built-in LLM-powered agent (using Gemini) that can analyze your data, write feature engineering code, and suggest optimal configurations.
+*   **🤖 AI Data Scientist Agent**: Built-in LLM-powered agent (using Google Gemini, OpenAI, Anthropic, Ollama,) that can analyze your data, write feature engineering code, and suggest optimal configurations and analyze results and suggest production deployment.
 *   **🧠 Multi-Model Intelligence**: First-class support for Gradient Boosting Machines (LightGBM, XGBoost, CatBoost) and Deep Learning (PyTorch Custom Architectures).
 *   **⚡ Auto-Optimization**: Integrated **Optuna** engine for intelligent, parallelized hyperparameter search with pruning strategies.
 *   **🏗️ Advanced Ensembling**: Built-in Stacking and Voting mechanisms to combine weak learners into robust meta-models.
 *   **⚙️ Configuration-Driven**: Entire pipeline behavior controlled via a central `config.py`, ensuring reproducibility and ease of experimentation.
 *   **🔥 Deep Learning Ready**: Includes implementations of modern tabular DL architectures like **FT-Transformer** and ResNet-style blocks (GELU, Residual Blocks).
+*   **📈 MLflow Integration**: Seamless experiment tracking, model versioning, and artifact logging using MLflow.
+*   **📊 Automated Reporting**: Generate professional, publication-ready Exploratory Data Analysis reports (HTML) with deep insights into distributions, correlations, and target relationships.
 
 ---
 
@@ -38,7 +40,7 @@
 Ensure you have the required dependencies installed. It is recommended to use a virtual environment.
 
 ```bash
-pip install pandas numpy scikit-learn lightgbm xgboost catboost torch optuna seaborn matplotlib langchain-google-genai langgraph python-dotenv
+pip install pandas numpy scikit-learn lightgbm xgboost catboost torch mflow optuna-integration[mlflow] optuna seaborn matplotlib langchain-google-genai langchain-openai langchain-anthropic langchain-ollama langgraph python-dotenv
 ```
 
 *Note: You will need a Google Cloud API Key in your `.env` file (`GOOGLE_API_KEY`) to use the AI Agent.*

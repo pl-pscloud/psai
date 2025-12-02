@@ -27,7 +27,7 @@ from psai.config import CONFIG
 from psai.psml import psML
 
 class DataScientist:
-    def __init__(self, df: pd.DataFrame, target: str, model_provider: str = "google", model_name: str = "gemini-3-pro-preview", model_temperature: float = 1.0,  api_key: str = None, optuna_metric: str = None, optuna_trials: int = None, task_type: str = None, experiment_name: str = None):
+    def __init__(self, df: pd.DataFrame, target: str, model_provider: str = "google", model_name: str = "gemini-3-pro-preview", model_temperature: float = 1.0,  api_key: str = None, optuna_metric: str = None, optuna_trials: int = None, optuna_timeout: int = None, task_type: str = None, experiment_name: str = None):
         """
         Initialize the DataScientist agent.
         
@@ -43,32 +43,34 @@ class DataScientist:
         if model_provider == "google":
             from langchain_google_genai import ChatGoogleGenerativeAI
             self.llm = ChatGoogleGenerativeAI(
-                model=model_name, 
-                temperature=model_temperature, 
-                google_api_key=api_key
+                model = model_name, 
+                temperature = model_temperature, 
+                google_api_key = api_key
             )
         elif model_provider == "openai":
             from langchain_openai import ChatOpenAI
             self.llm = ChatOpenAI(
                 model = model_name,
                 temperature = model_temperature,
+                reasoning_effort = "high",
                 max_retries = 2,
                 api_key = api_key,
             )
         elif model_provider == "antrophic":
             from langchain_anthropic import ChatAnthropic
             self.llm = ChatAnthropic(
-                model=model_name,
-                temperature=model_temperature,
-                max_retries=2,
-                api_key=api_key,
+                model = model_name,
+                temperature = model_temperature,
+                thinking = {"type": "enabled", "budget_tokens": 5000},
+                max_retries = 2,
+                api_key = api_key,
             )
         elif model_provider == "ollama":
             from langchain_ollama import ChatOllama
             self.llm = ChatOllama(
-                model=model_name,
-                validate_model_on_init=True,
-                temperature=model_temperature,
+                model = model_name,
+                validate_model_on_init = True,
+                temperature = model_temperature,
             )
         else:
             raise ValueError(f"Provider '{model_provider}' not known, use: ['google','openai','antrophic','ollama']")
@@ -84,6 +86,7 @@ class DataScientist:
         self.ai_dataset_config = None
         self.ai_preprocessor = None
         self.ai_feature_engineering_code = None
+        self.ai_feature_engineering = None
         self.ai_models_config = None
         self.ai_ensamble_config = None
         self.ai_results_analysis = None
@@ -93,6 +96,7 @@ class DataScientist:
         self.config = {"configurable": {"thread_id": self.session}}
         self.optuna_metric = optuna_metric
         self.optuna_trials = optuna_trials
+        self.optuna_timeout = optuna_timeout
         self.task_type = task_type
         self.experiment_name = experiment_name
         self.system_prompt = """
@@ -288,6 +292,7 @@ The behavior of the library is controlled by a central configuration dictionary 
 
         optuna_metrics_info = f"""The optuna_metric is: '{self.optuna_metric}'""" if self.optuna_metric else ""
         optuna_trials_info = f"""Suggested trails for optuna is: '{self.optuna_trials}'""" if self.optuna_trials else ""
+        optuna_timeout_info = f"""Suggested timeout for optuna is: '{self.optuna_timeout}'""" if self.optuna_timeout else ""
         task_type_info = f"""The task_type is: '{self.task_type}'""" if self.task_type else ""
         
         summary = []
@@ -316,6 +321,8 @@ The target column is: '{self.target}'
 {optuna_metrics_info}
 
 {optuna_trials_info}
+
+{optuna_timeout_info}
 
 Here is an analysis of the dataset:
 {summary}
@@ -495,6 +502,12 @@ Write the code now.
                 code = re.sub(r'^```\s*', '', code, flags=re.MULTILINE)
                 code = code.strip()
                 exec(code, local_scope)
+
+                self.ai_feature_engineering = local_scope['feature_engineering']
+                self.X, self.y = self.ai_feature_engineering(self.df)
+                
+                print(f"Feature Engineering complete. X shape: {self.X.shape}, y shape: {self.y.shape}")
+                return self.X, self.y
             else:
                 print("Code not executed. Returning code instead.")
                 return code_feature_engineering
@@ -502,11 +515,7 @@ Write the code now.
             if 'feature_engineering' not in local_scope:
                 raise ValueError("The generated code did not define a 'feature_engineering' function.")
             
-            feature_engineering_func = local_scope['feature_engineering']
-            self.X, self.y = feature_engineering_func(self.df)
             
-            print(f"Feature Engineering complete. X shape: {self.X.shape}, y shape: {self.y.shape}")
-            return self.X, self.y
             
         except Exception as e:
             print(f"Error executing generated code: {e}")
@@ -634,7 +643,7 @@ Based on this analysis, create the best preprocessor for the dataset using the v
 
 **Constraints**:
 -   The config MUST be in json format.
--   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
+-   Do NOT include any markdown formatting (like ```python ... ``` or ```json ... ``` ) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 
 Write the code now.
@@ -905,7 +914,7 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
 -   When multiclass are selected for lightgbm set num_class = x (where x is number of classes)
 -   Always choose params from scope provided in comments as it is. eg if name is 'adamw' use 'adamw' not 'adamW'
 -   For Pytorch on output layer do not use batch_layer or layer_norm.
--   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
+-   Do NOT include any markdown formatting (like ```python ... ``` or ```json ... ``` ) in your response. Just the code.
 -   Handle potential errors gracefully if possible.
 """
         
