@@ -35,6 +35,11 @@ from xgboost import XGBClassifier, XGBRegressor
 
 from psai.scalersencoders import create_preprocessor
 from psai.pstorch import PyTorchRegressor, PyTorchClassifier
+from psai.models.lightgbm import LightGBMAdapter
+from psai.models.xgboost import XGBoostAdapter
+from psai.models.catboost import CatBoostAdapter
+from psai.models.sklearn import RandomForestAdapter
+from psai.models.pytorch import PyTorchAdapter
 
 try:
     from scipy.optimize import BracketError
@@ -79,24 +84,35 @@ class psML:
         if isinstance(y, pd.Series):
             y = y.to_frame()
 
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, 
-            test_size=self.config['dataset']['test_size'], 
-            random_state=self.config['dataset']['random_state']
-        )
+        if self.config['dataset']['task_type'] == 'classification':
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                X, y, 
+                test_size=self.config['dataset']['test_size'], 
+                random_state=self.config['dataset']['random_state'],
+                stratify=y
+            )
+        else:
+            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(
+                X, y, 
+                test_size=self.config['dataset']['test_size'], 
+                random_state=self.config['dataset']['random_state']
+            )
 
-        self.X_train = X_train
-        self.y_train = y_train
-        self.X_test = X_test
-        self.y_test = y_test
         self.columns = {}
         self.preprocessor = None
 
         # Determine if multiclass
         self.is_multiclass = False
+        self.le = None
         if self.config['dataset']['task_type'] == 'classification':
              if self.y_train.iloc[:, 0].nunique() > 2:
                  self.is_multiclass = True
+             
+             # Encode target
+             from sklearn.preprocessing import LabelEncoder
+             self.le = LabelEncoder()
+             self.y_train.iloc[:, 0] = self.le.fit_transform(self.y_train.iloc[:, 0])
+             self.y_test.iloc[:, 0] = self.le.transform(self.y_test.iloc[:, 0])
 
         # Store min value of y_train for rmsle_safe
         self.y_train_min = self.y_train.min()
@@ -140,6 +156,21 @@ class psML:
             if self.mlflow_experiment_name:
                 mlflow.set_experiment(self.mlflow_experiment_name)
                 self.mlflow_experiment_id = mlflow.get_experiment_by_name(self.mlflow_experiment_name).experiment_id
+
+        # Initialize adapters
+        self.adapters = {
+            'lightgbm': LightGBMAdapter(self.config['models']['lightgbm'], self.config),
+            'xgboost': XGBoostAdapter(self.config['models']['xgboost'], self.config),
+            'catboost': CatBoostAdapter(self.config['models']['catboost'], self.config),
+            'random_forest': RandomForestAdapter(self.config['models']['random_forest'], self.config),
+            'pytorch': PyTorchAdapter(self.config['models']['pytorch'], self.config)
+        }
+        
+        # Set multiclass for adapters
+        for adapter in self.adapters.values():
+            adapter.set_multiclass(self.is_multiclass)
+            if hasattr(adapter, 'set_n_classes') and self.is_multiclass:
+                 adapter.set_n_classes(self.y_train.iloc[:, 0].nunique())
 
     def save(self, filepath: str) -> None:
         """Save the pSML object to a file using pickle"""
@@ -246,301 +277,11 @@ class psML:
         
         return metric_mapping[metric_name]
 
-    def _suggest_param(self, trial: optuna.Trial, model_name: str, param_name: str, default_type: Optional[str] = None, **default_kwargs: Any) -> Any:
-        """
-        Suggests a parameter value based on config or defaults.
-        """
-        config_params = self.config['models'][model_name].get('optuna_params', {})
-        
-        # Check if param is in config
-        if param_name in config_params:
-            p_config = config_params[param_name]
-            p_type = p_config.get('type')
-            
-            if p_type == 'int':
-                return trial.suggest_int(param_name, p_config['low'], p_config['high'], log=p_config.get('log', False))
-            elif p_type == 'float':
-                return trial.suggest_float(param_name, p_config['low'], p_config['high'], log=p_config.get('log', False))
-            elif p_type == 'categorical':
-                return trial.suggest_categorical(param_name, p_config['choices'])
-        
-        # Fallback to default
-        if default_type == 'int':
-            return trial.suggest_int(param_name, **default_kwargs)
-        elif default_type == 'float':
-            return trial.suggest_float(param_name, **default_kwargs)
-        elif default_type == 'categorical':
-            return trial.suggest_categorical(param_name, **default_kwargs)
-        
-        return None
-
-    def _get_model_params(self, model_name: str, trial: Optional[optuna.Trial] = None) -> Dict[str, Any]:
-        """
-        Centralized parameter definition. 
-        If trial is provided, suggests parameters. 
-        If trial is None, expects self.models[model_name]['best_params'] to exist (for final training).
-        """
-        model_config = self.config['models'][model_name]['params']
-        params = {}
-        
-        # If we are not in a trial (final training), we use the best params found
-        if trial is None:
-            best_params = self.models[model_name].get('best_params', {})
-            if not best_params:
-                logger.warning(f"No best params found for {model_name}, using defaults or empty dict.")
-            # We will merge these later, but for now we need to know if we are suggesting or just retrieving
-            pass
-
-        if model_name == 'lightgbm':
-            params = {
-                "objective": model_config['objective'],
-                "device": model_config['device'],
-                "metric": model_config['eval_metric'], 
-                "verbosity": -1,
-                "n_estimators": 10000,
-                "num_threads": model_config['num_threads'],
-                "verbose": model_config['verbose']
-            }
-            if trial:
-                params.update({
-                    "boosting_type": self._suggest_param(trial, model_name, 'boosting_type', 'categorical', choices=['gbdt', 'goss']),
-                    "lambda_l1": self._suggest_param(trial, model_name, "lambda_l1", 'float', low=1e-8, high=10.0, log=True),
-                    "lambda_l2": self._suggest_param(trial, model_name, "lambda_l2", 'float', low=1e-8, high=10.0, log=True),
-                    "num_leaves": self._suggest_param(trial, model_name, "num_leaves", 'int', low=20, high=300),
-                    "feature_fraction": self._suggest_param(trial, model_name, "feature_fraction", 'float', low=0.4, high=1.0),
-                    "min_child_samples": self._suggest_param(trial, model_name, "min_child_samples", 'int', low=5, high=100),
-                    "learning_rate": self._suggest_param(trial, model_name, "learning_rate", 'float', low=0.001, high=0.2, log=True),
-                    "min_split_gain": self._suggest_param(trial, model_name, "min_split_gain", 'float', low=1e-8, high=1.0, log=True),
-                    "max_depth": self._suggest_param(trial, model_name, "max_depth", 'int', low=3, high=20),
-                })
-                if params['boosting_type'] != 'goss':
-                    params["bagging_fraction"] = self._suggest_param(trial, model_name, "bagging_fraction", 'float', low=0.4, high=1.0)
-                    params["bagging_freq"] = self._suggest_param(trial, model_name, "bagging_freq", 'int', low=1, high=7)
-            else:
-                # Merge best params
-                params.update(best_params)
-
-        elif model_name == 'xgboost':
-            params = {
-                "objective": model_config['objective'],
-                "eval_metric": model_config['eval_metric'],
-                "device": 'cuda' if model_config['device'] == 'gpu' else 'cpu',
-                "early_stopping_rounds": 100,
-                "nthread": model_config['nthread'],
-                "verbose": model_config['verbose']
-            }
-            if trial:
-                params.update({
-                    "booster": self._suggest_param(trial, model_name, 'booster', 'categorical', choices=['gbtree']),
-                    "max_depth": self._suggest_param(trial, model_name, 'max_depth', 'int', low=3, high=20),
-                    "learning_rate": self._suggest_param(trial, model_name, 'learning_rate', 'float', low=0.001, high=0.2, log=True),
-                    "n_estimators": self._suggest_param(trial, model_name, 'n_estimators', 'int', low=500, high=3000),
-                    "subsample": self._suggest_param(trial, model_name, 'subsample', 'float', low=0, high=1),
-                    "lambda": self._suggest_param(trial, model_name, 'lambda', 'float', low=1e-4, high=5, log=True),
-                    "gamma": self._suggest_param(trial, model_name, 'gamma', 'float', low=1e-4, high=5, log=True),
-                    "alpha": self._suggest_param(trial, model_name, 'alpha', 'float', low=1e-4, high=5, log=True),
-                    "min_child_weight": self._suggest_param(trial, model_name, 'min_child_weight', 'categorical', choices=[0.5, 1, 3, 5]),
-                    "colsample_bytree": self._suggest_param(trial, model_name, 'colsample_bytree', 'float', low=0.5, high=1),
-                    "colsample_bylevel": self._suggest_param(trial, model_name, 'colsample_bylevel', 'float', low=0.5, high=1),
-                })
-            else:
-                params.update(best_params)
-
-        elif model_name == 'catboost':
-            params = {
-                'loss_function': model_config['objective'],
-                'eval_metric': model_config['eval_metric'],
-                'task_type': 'CPU' if model_config['device'] == 'cpu' else 'GPU',
-                'random_seed': 42,
-                'verbose': model_config['verbose'],
-                'thread_count': model_config['thread_count']
-            }
-            if trial:
-                params.update({
-                    'n_estimators': self._suggest_param(trial, model_name, 'n_estimators', 'int', low=100, high=3000),
-                    'learning_rate': self._suggest_param(trial, model_name, 'learning_rate', 'float', low=0.001, high=0.2, log=True),
-                    'depth': self._suggest_param(trial, model_name, 'depth', 'int', low=4, high=10),
-                    'l2_leaf_reg': self._suggest_param(trial, model_name, 'l2_leaf_reg', 'float', low=1e-3, high=10.0, log=True),
-                    'border_count': self._suggest_param(trial, model_name, 'border_count', 'int', low=32, high=128),
-                    'bootstrap_type': self._suggest_param(trial, model_name, 'bootstrap_type', 'categorical', choices=['Bayesian', 'Bernoulli', 'MVS']),
-                    'feature_border_type': self._suggest_param(trial, model_name, 'feature_border_type', 'categorical', choices=['Median', 'Uniform', 'GreedyMinEntropy']),
-                    'leaf_estimation_iterations': self._suggest_param(trial, model_name, 'leaf_estimation_iterations', 'int', low=1, high=10),
-                    'min_data_in_leaf': self._suggest_param(trial, model_name, 'min_data_in_leaf', 'int', low=1, high=30),
-                    'random_strength': self._suggest_param(trial, model_name, 'random_strength', 'float', low=1e-9, high=10, log=True),
-                    'grow_policy': self._suggest_param(trial, model_name, 'grow_policy', 'categorical', choices=['SymmetricTree', 'Depthwise', 'Lossguide']),
-                })
-                if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
-                    logger.info("GPU choose must switch Bootstrap type to Bayesian")
-                    params['bootstrap_type'] = 'Bayesian'
-                if params['bootstrap_type'] == 'Bernoulli':
-                    params['subsample'] = self._suggest_param(trial, model_name, 'subsample', 'float', low=0.6, high=1.0)
-                if params['bootstrap_type'] == 'Bayesian':
-                    params['bagging_temperature'] = self._suggest_param(trial, model_name, 'bagging_temperature', 'float', low=0, high=1)
-                if params['grow_policy'] == 'Lossguide':
-                    params['max_leaves'] = self._suggest_param(trial, model_name, 'max_leaves', 'int', low=2, high=32)
-            else:                
-                params.update(best_params)
-                if params['bootstrap_type'] == 'MVS' and params['task_type'] == 'GPU':
-                    logger.info("GPU choose must switch Bootstrap type to Bayesian")
-                    params['bootstrap_type'] = 'Bayesian'
-
-        elif model_name == 'pytorch':
-            # Base params that are always present
-            params = {
-                "loss": model_config['objective'],
-                "embedding_info": self.columns.get('embedding_info'),
-                "verbose": model_config['verbose'],
-                "device": 'cuda' if model_config['device'] == 'gpu' else 'cpu',
-                "num_threads": model_config['num_threads']
-            }
-            
-            if trial:
-                # Suggest model type first
-                model_type = self._suggest_param(trial, model_name, 'model_type', 'categorical', choices=['mlp', 'ft_transformer'])
-                params['model_type'] = model_type
-                
-                params.update({
-                    "learning_rate": self._suggest_param(trial, model_name, 'learning_rate', 'categorical', choices=[0.001]),
-                    "optimizer_name": self._suggest_param(trial, model_name, 'optimizer_name', 'categorical', choices=['adam']),
-                    "batch_size": self._suggest_param(trial, model_name, 'batch_size', 'categorical', choices=[64, 128, 256]),
-                    "weight_init": self._suggest_param(trial, model_name, 'weight_init', 'categorical', choices=['default']),
-                    "max_epochs": model_config['train_max_epochs'],
-                    "patience": model_config['train_patience'],
-                })
-
-                if model_type == 'mlp':
-                    params["net"] = self._suggest_param(trial, model_name, 'net', 'categorical', choices=[
-                        [
-                            {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'layer_norm'},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 16, 'activation': 'gelu', 'norm': 'layer_norm'},
-                            {'type': 'dropout', 'p': 0.1},
-                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': 'layer_norm'}
-                        ],
-                        [
-                            {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
-                            {'type': 'res_block', 'layers': [
-                                {'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'},
-                                {'type': 'dropout', 'p': 0.1}
-                            ]},
-                            {'type': 'dense', 'out_features': 16, 'activation': 'gelu', 'norm': 'batch_norm'},
-                            {'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}
-                        ]
-                    ])
-                elif model_type == 'ft_transformer':
-                    params["ft_params"] = {
-                        'd_token': self._suggest_param(trial, model_name, 'd_token', 'categorical', choices=[64, 128, 192, 256]),
-                        'n_layers': self._suggest_param(trial, model_name, 'n_layers', 'int', low=1, high=4),
-                        'n_heads': self._suggest_param(trial, model_name, 'n_heads', 'categorical', choices=[4, 8]),
-                        'd_ffn_factor': self._suggest_param(trial, model_name, 'd_ffn_factor', 'float', low=1.0, high=2.0),
-                        'attention_dropout': self._suggest_param(trial, model_name, 'attention_dropout', 'float', low=0.0, high=0.3),
-                        'ffn_dropout': self._suggest_param(trial, model_name, 'ffn_dropout', 'float', low=0.0, high=0.3),
-                        'residual_dropout': self._suggest_param(trial, model_name, 'residual_dropout', 'float', low=0.0, high=0.2),
-                        'activation': 'reglu',
-                        'n_out': 1
-                    }
-
-            else:
-                params.update(best_params)
-                
-                # Re-structure for PyTorch class requirements
-                if params.get('model_type') == 'ft_transformer':
-                    ft_keys = ['d_token', 'n_layers', 'n_heads', 'd_ffn_factor', 
-                               'attention_dropout', 'ffn_dropout', 'residual_dropout']
-                    ft_params = {k: params.pop(k) for k in ft_keys if k in params}
-                    # Add hardcoded defaults that were used in trial but not optimized
-                    ft_params['activation'] = 'reglu'
-                    ft_params['n_out'] = 1
-                    params['ft_params'] = ft_params
-
-                # Override epochs for final training
-                params["max_epochs"] = model_config['final_max_epochs']
-                params["patience"] = model_config['final_patience']
-
-            # Adjust output dimension for multiclass
-            n_classes = 1
-            if self.is_multiclass:
-                n_classes = self.y_train.iloc[:, 0].nunique()
-            
-            if params.get('model_type') == 'ft_transformer':
-                if 'ft_params' in params:
-                    params['ft_params']['n_out'] = n_classes
-            elif params.get('model_type') == 'mlp':
-                if 'net' in params and isinstance(params['net'], list):
-                    # Assume last layer is the output layer
-                    params['net'][-1]['out_features'] = n_classes
-
-        elif model_name == 'random_forest':
-            params = {
-                'verbose': model_config['verbose'],
-                'n_jobs': model_config['n_jobs'],
-                'random_state': 42
-            }
-            if trial:
-                params.update({
-                    'n_estimators': self._suggest_param(trial, model_name, 'n_estimators', 'int', low=100, high=1000),
-                    'max_depth': self._suggest_param(trial, model_name, 'max_depth', 'int', low=3, high=30),
-                    'min_samples_split': self._suggest_param(trial, model_name, 'min_samples_split', 'int', low=2, high=20),
-                    'min_samples_leaf': self._suggest_param(trial, model_name, 'min_samples_leaf', 'int', low=1, high=10),
-                    'max_features': self._suggest_param(trial, model_name, 'max_features', 'categorical', choices=['sqrt', 'log2', None]),
-                    'bootstrap': self._suggest_param(trial, model_name, 'bootstrap', 'categorical', choices=[True, False])
-                })
-                if params['bootstrap']:
-                    params['max_samples'] = self._suggest_param(trial, model_name, 'max_samples', 'float', low=0.5, high=1.0)
-            else:
-                params.update(best_params)
-
-        return params
-
-    def _create_model(self, model_name: str, params: Dict[str, Any]) -> Any:
-        task_type = self.config['dataset']['task_type']
-        
-        if task_type == 'classification':
-            if model_name == 'lightgbm': return LGBMClassifier(**params)
-            elif model_name == 'xgboost': return XGBClassifier(**params)
-            elif model_name == 'catboost': return CatBoostClassifier(**params)
-            elif model_name == 'random_forest': return RandomForestClassifier(**params)
-            elif model_name == 'pytorch': return PyTorchClassifier(**params)
-        else:
-            if model_name == 'lightgbm': return LGBMRegressor(**params)
-            elif model_name == 'xgboost': return XGBRegressor(**params)
-            elif model_name == 'catboost': return CatBoostRegressor(**params)
-            elif model_name == 'random_forest': return RandomForestRegressor(**params)
-            elif model_name == 'pytorch': return PyTorchRegressor(**params)
-        
-        logger.error(f"Unknown model name: {model_name}")
-        raise ValueError(f"Unknown model name: {model_name}")
-        return None
-
     def _fit_model(self, model: Any, model_name: str, X_train: pd.DataFrame, y_train: Union[pd.Series, pd.DataFrame], X_val: pd.DataFrame, y_val: Union[pd.Series, pd.DataFrame]) -> None:
-        """Helper to fit models with their specific early stopping syntax"""
+        """Helper to fit models with their specific early stopping syntax using adapters"""
+        adapter = self.adapters[model_name]
+        fit_params = adapter.get_fit_params(X_val, y_val)
         
-        # Common fit args
-        fit_params = {}
-        
-        if model_name == 'lightgbm':
-            fit_params = {
-                'eval_set': [(X_val, y_val)],
-                'eval_metric': self.config['models']['lightgbm']['params']['eval_metric'],
-                'callbacks': [lgb.early_stopping(stopping_rounds=100, verbose=False)]
-            }
-        elif model_name == 'xgboost':
-            fit_params = {
-                'eval_set': [(X_val, y_val)],
-                'verbose': False
-            }
-        elif model_name == 'catboost':
-            fit_params = {
-                'eval_set': [(X_val, y_val)],
-                'early_stopping_rounds': 100
-            }
-        elif model_name == 'pytorch':
-            fit_params = {
-                'eval_set': [X_val, y_val]
-            }
-        elif model_name == 'random_forest':
-            fit_params = {} # Random Forest doesn't support early stopping in fit
-
         # Pipeline handling: The model is the last step in a pipeline
         if isinstance(model, Pipeline):
             # We need to pass fit params to the specific step
@@ -551,10 +292,19 @@ class psML:
             model.fit(X_train, y_train, **fit_params)
 
     def optimize_model(self, model_name: str):
+        if self.preprocessor is None:
+            self.create_preprocessor()
+
         self.models[model_name] = {}
+        adapter = self.adapters[model_name]
+
+        # Update adapter with embedding info for PyTorch if needed
+        if model_name == 'pytorch':
+             if hasattr(adapter, 'set_embedding_info'):
+                 adapter.set_embedding_info(self.columns.get('embedding_info'))
         
         def objective(trial):
-            params = self._get_model_params(model_name, trial)
+            params = adapter.get_params(trial)
             
             if self.config['dataset']['verbose'] > 0:
                 logger.info(f'===============  {model_name} training - trial {trial.number+1} / {self.config["models"][model_name]["optuna_trials"]}  =========================')
@@ -585,7 +335,7 @@ class psML:
                     # Transform validation data for eval_set
                     X_val_transformed = fold_preprocessor.transform(X_val_fold.reset_index(drop=True))
                     
-                    clf = self._create_model(model_name, params)
+                    clf = adapter.create_model(params)
                     
                     pipeline = Pipeline([
                         ('preprocessor', fold_preprocessor),
@@ -666,6 +416,7 @@ class psML:
         )
         
         # Custom MLflow Callback for Optuna
+        callbacks = []
         if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
             def logging_callback_mlflow(study, frozen_trial):
                 with mlflow.start_run(run_name=f"{model_name}_{frozen_trial.number}", experiment_id=self.mlflow_experiment_id, tags={"model_name": model_name}):
@@ -673,13 +424,14 @@ class psML:
                     if frozen_trial.value is not None:
                         mlflow.log_metric(self.config['models'][model_name]['optuna_metric'], frozen_trial.value)
                     mlflow.set_tag("state", frozen_trial.state.name)
+            callbacks.append(logging_callback_mlflow)
 
         study.optimize(
             objective, 
             n_trials=max(1, self.config['models'][model_name]['optuna_trials']), 
             timeout=self.config['models'][model_name].get('optuna_timeout', None),
             n_jobs=self.config['models'][model_name]['optuna_n_jobs'],
-            callbacks=[logging_callback_mlflow if self.mlflow_experiment_name else None]
+            callbacks=callbacks
         )
 
         # Store results
@@ -697,13 +449,13 @@ class psML:
         # Final Training on Full Data
         logger.info(f'===============  {model_name} Final Training  ============================')
         
-        final_params = self._get_model_params(model_name, trial=None)
+        final_params = adapter.get_params(trial=None)
         
         final_preprocessor = clone(self.preprocessor)
         final_preprocessor.fit(self.X_train, self.y_train)
         X_test_transformed = final_preprocessor.transform(self.X_test)
         
-        clf_final = self._create_model(model_name, final_params)
+        clf_final = adapter.create_model(final_params)
         
         final_pipeline = Pipeline([
             ('preprocessor', final_preprocessor),
@@ -909,8 +661,7 @@ class psML:
                     if final_key in self.models:
                         base_estimators.append(
                             (model_name, self.models[final_key]['model'])
-        
-                     )
+                        )
 
         if self.config['dataset']['verbose'] > 1:
             logger.info(f"Base estimators: {base_estimators}")
