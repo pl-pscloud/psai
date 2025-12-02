@@ -33,8 +33,8 @@ from catboost import CatBoostClassifier, CatBoostRegressor
 from lightgbm import LGBMClassifier, LGBMRegressor
 from xgboost import XGBClassifier, XGBRegressor
 
-from psai.scalersencoders import create_preprocessor
-from psai.pstorch import PyTorchRegressor, PyTorchClassifier
+from psai.core.scalersencoders import create_preprocessor
+from psai.core.pstorch import PyTorchRegressor, PyTorchClassifier
 from psai.models.lightgbm import LightGBMAdapter
 from psai.models.xgboost import XGBoostAdapter
 from psai.models.catboost import CatBoostAdapter

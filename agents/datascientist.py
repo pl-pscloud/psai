@@ -22,9 +22,9 @@ import markdown
 import html
 import time
 
-from psai.datasets import EDAReport
-from psai.config import CONFIG
-from psai.psml import psML
+from psai.core.datasets import EDAReport
+from psai.core.config import CONFIG
+from psai.core.psml import psML
 
 class DataScientist:
     def __init__(self, df: pd.DataFrame, target: str, model_provider: str = "google", model_name: str = "gemini-3-pro-preview", model_temperature: float = 1.0,  api_key: str = None, optuna_metric: str = None, optuna_trials: int = None, optuna_timeout: int = None, task_type: str = None, experiment_name: str = None):

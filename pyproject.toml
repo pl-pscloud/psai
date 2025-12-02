@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psai"
+version = "0.1.0"
+description = "A production-ready, configurable Machine Learning pipeline library with Optuna hyperparameters tuning, MLFlow and LLM Agents."
+readme = "psai/README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Paweł Świtała", email = "p.switala@pslab.eu" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pandas",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "lightgbm",
+    "xgboost",
+    "catboost",
+    "torch",
+    "mlflow",
+    "optuna",
+    "optuna-integration[mlflow]",
+    "seaborn",
+    "matplotlib",
+    "langchain-google-genai",
+    "langchain-openai",
+    "langchain-anthropic",
+    "langchain-ollama",
+    "langgraph",
+    "python-dotenv",
+    "xhtml2pdf",
+    "markdown",
+    "pandera",
+    "ipython"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "types-requests",
+    "types-PyYAML"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["psai*"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py39"
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true

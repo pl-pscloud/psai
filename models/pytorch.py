@@ -1,8 +1,8 @@
 from typing import Any, Dict, Optional
 import optuna
 import os
-from psai.pstorch import PyTorchClassifier, PyTorchRegressor
-from .base import BaseModelAdapter
+from psai.core.pstorch import PyTorchClassifier, PyTorchRegressor
+from psai.models.base import BaseModelAdapter
 
 class PyTorchAdapter(BaseModelAdapter):
     def __init__(self, model_config: Dict[str, Any], global_config: Dict[str, Any]):
