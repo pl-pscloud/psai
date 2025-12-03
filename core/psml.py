@@ -11,7 +11,9 @@ import os
 import logging
 import lightgbm as lgb
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
+from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 import time
+import shap
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -710,3 +712,94 @@ class psML:
                     mlflow.sklearn.log_model(vt, f"voting_{suffix}")
                 except Exception as e:
                     logger.warning(f"Failed to log voting model to MLflow: {e}")
+
+    def explain_model(self, model_name: str, X: Optional[pd.DataFrame] = None, plot: bool = True, plot_type: str = 'summary', **kwargs) -> Any:
+        """
+        Generates SHAP values and plots for a specific model.
+        
+        Args:
+            model_name: Name of the model ('lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch')
+            X: Data to explain. If None, uses X_test.
+            plot: Whether to generate a plot.
+            plot_type: Type of plot ('summary', 'bar', 'force', 'dependence').
+            **kwargs: Additional arguments for the plot function.
+            
+        Returns:
+            shap_values: The calculated SHAP values.
+        """
+        if f'final_model_{model_name}' not in self.models:
+            logger.error(f"Model {model_name} has not been trained (final model not found).")
+            return None
+            
+        pipeline = self.models[f'final_model_{model_name}']['model']
+        estimator = pipeline.named_steps[model_name]
+        preprocessor = pipeline.named_steps['preprocessor']
+        
+        if X is None:
+            X = self.X_test
+            
+        # Transform data
+        X_transformed = preprocessor.transform(X)
+        
+        # Handle sparse matrix
+        if hasattr(X_transformed, "toarray"):
+            X_transformed = X_transformed.toarray()
+            
+        # Get feature names
+        feature_names = None
+        if hasattr(preprocessor, 'get_feature_names_out'):
+            try:
+                feature_names = preprocessor.get_feature_names_out()
+                # Clean feature names (remove transformers prefixes like 'num__', 'cat__')
+                cleaned_names = []
+                for name in feature_names:
+                    # Split by double underscore and take the last part, or join if multiple
+                    # But ColumnTransformer usually does 'name__feature'
+                    # We want to remove the 'num__', 'low__', 'high__', 'skew__', 'outlier__' prefixes
+                    for prefix in ['num__', 'low__', 'high__', 'skew__', 'outlier__', 'dim_reduction__']:
+                        if name.startswith(prefix):
+                            name = name[len(prefix):]
+                    cleaned_names.append(name)
+                feature_names = cleaned_names
+            except Exception as e:
+                logger.warning(f"Could not get feature names: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
+        
+        if feature_names is None:
+            feature_names = [f'feature_{i}' for i in range(X_transformed.shape[1])]
+            
+        # Create DataFrame with feature names
+        X_transformed = pd.DataFrame(X_transformed, columns=feature_names)
+            
+        # Select Explainer
+        if model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest']:
+            explainer = shap.TreeExplainer(estimator)
+        else:
+            # Generic explainer (might be slow)
+            logger.warning(f"Using KernelExplainer for {model_name}. This might be slow.")
+            # Use a small background sample
+            background = preprocessor.transform(self.X_train.sample(min(100, len(self.X_train)), random_state=42))
+            if hasattr(background, "toarray"):
+                background = background.toarray()
+            background = pd.DataFrame(background, columns=feature_names)
+            
+            if self.config['dataset']['task_type'] == 'classification':
+                 explainer = shap.KernelExplainer(estimator.predict_proba, background)
+            else:
+                 explainer = shap.KernelExplainer(estimator.predict, background)
+            
+        shap_values = explainer(X_transformed)
+        
+        if plot:
+            if plot_type == 'summary':
+                shap.summary_plot(shap_values, X_transformed, **kwargs)
+            elif plot_type == 'bar':
+                shap.summary_plot(shap_values, X_transformed, plot_type='bar', **kwargs)
+            elif plot_type == 'heatmap':
+                shap.plots.heatmap(shap_values, **kwargs)
+            elif plot_type == 'waterfall':
+                # Waterfall plot usually needs a single instance
+                shap.plots.waterfall(shap_values[0], **kwargs)
+            
+        return shap_values

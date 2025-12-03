@@ -11,7 +11,7 @@ from sklearn.preprocessing import FunctionTransformer
 import numpy as np
 
 # Define the identity function for feature names
-def identity_feature_names_out(feature_names_in):
+def identity_feature_names_out(transformer, feature_names_in):
     return feature_names_in
 
 # Create the transformer
