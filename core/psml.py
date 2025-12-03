@@ -14,6 +14,8 @@ from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 import time
 import shap
+import torch
+import torch.nn as nn
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -243,11 +245,11 @@ class psML:
         # Add ensemble scores
         for ensemble_name in ['ensemble_stacking_cv', 'ensemble_stacking_final', 'ensemble_voting_cv', 'ensemble_voting_final']:
             if ensemble_name in self.models:
-                score = self.models[ensemble_name].get('score', "N/A")
+                score = self.models[ensemble_name].get('test_score', "N/A")
                 results[ensemble_name] = {
-                    "score": score
+                    "test_score": score
                 }
-                logger.info(f'{ensemble_name.replace("_", " ").title()} Score: {score}')
+                logger.info(f'{ensemble_name.replace("_", " ").title()} Test Score: {score}')
         
         if return_json:
             return json.dumps(results)
@@ -679,7 +681,7 @@ class psML:
         ref_model = next(iter(self.config['models']))
         score = self.get_evaluation_metric(self.config['models'][ref_model]['optuna_metric'])(self.y_test, y_pred)
         
-        self.models[f'ensemble_stacking_{suffix}'] = {'model': st, 'score': score}
+        self.models[f'ensemble_stacking_{suffix}'] = {'model': st, 'test_score': score}
         logger.info(f'Stacking {suffix} score: {score}')
 
         # Log stacking model to MLflow
@@ -761,7 +763,7 @@ class psML:
         ref_model = next(iter(self.config['models']))
         score = self.get_evaluation_metric(self.config['models'][ref_model]['optuna_metric'])(self.y_test, y_pred)
         
-        self.models[f'ensemble_voting_{suffix}'] = {'model': vt, 'score': score}
+        self.models[f'ensemble_voting_{suffix}'] = {'model': vt, 'test_score': score}
         logger.info(f'Voting {suffix} score: {score}')
 
         # Log voting model to MLflow
@@ -774,7 +776,7 @@ class psML:
                 except Exception as e:
                     logger.warning(f"Failed to log voting model to MLflow: {e}")
 
-    def explain_model(self, model_name: str, X: Optional[pd.DataFrame] = None, plot: bool = True, plot_type: str = 'summary', **kwargs) -> Any:
+    def explain_model(self, model_name: str, X: Optional[pd.DataFrame] = None, plot: bool = True, plot_type: str = 'summary', max_display: Optional[int] = None, **kwargs) -> Any:
         """
         Generates SHAP values and plots for a specific model.
         
@@ -783,6 +785,8 @@ class psML:
             X: Data to explain. If None, uses X_test.
             plot: Whether to generate a plot.
             plot_type: Type of plot ('summary', 'bar', 'force', 'dependence').
+            max_display: Maximum number of features to display in the plot. Defaults to None (SHAP default).
+                         For 'random_forest', defaults to 2 if not specified.
             **kwargs: Additional arguments for the plot function.
             
         Returns:
@@ -817,11 +821,18 @@ class psML:
                     # Split by double underscore and take the last part, or join if multiple
                     # But ColumnTransformer usually does 'name__feature'
                     # We want to remove the 'num__', 'low__', 'high__', 'skew__', 'outlier__' prefixes
-                    for prefix in ['num__', 'low__', 'high__', 'skew__', 'outlier__', 'dim_reduction__']:
+                    for prefix in ['num__', 'low__', 'high__', 'skew__', 'outlier__', 'dim_reduction__', 'cat__', 'onehot__', 'remainder__']:
                         if name.startswith(prefix):
                             name = name[len(prefix):]
                     cleaned_names.append(name)
-                feature_names = cleaned_names
+                
+                # Sanitize feature names for XGBoost (no [, ], <)
+                sanitized_names = []
+                for name in cleaned_names:
+                    # Replace forbidden characters
+                    name = name.replace('[', '(').replace(']', ')').replace('<', '_')
+                    sanitized_names.append(name)
+                feature_names = sanitized_names
             except Exception as e:
                 logger.warning(f"Could not get feature names: {e}")
                 import traceback
@@ -834,9 +845,62 @@ class psML:
         X_transformed = pd.DataFrame(X_transformed, columns=feature_names)
             
         # Select Explainer
+        # Select Explainer
+        shap_values = None
+        used_explainer = None
+
         if model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest']:
             explainer = shap.TreeExplainer(estimator)
-        else:
+            shap_values = explainer(X_transformed)
+            used_explainer = 'tree'
+        elif model_name == 'pytorch':
+            try:
+                # Wrapper for PyTorch model to handle single input tensor
+                class PyTorchWrapper(nn.Module):
+                    def __init__(self, model, embedding_info):
+                        super().__init__()
+                        self.model = model
+                        self.embedding_info = embedding_info
+                        
+                    def forward(self, x):
+                        # x is (batch, n_features)
+                        if self.embedding_info:
+                            n_cat = len(self.embedding_info)
+                            # Note: DeepExplainer requires differentiable inputs. 
+                            # If x contains categorical indices, this will fail during backward().
+                            x_cat = x[:, :n_cat].long()
+                            x_num = x[:, n_cat:]
+                        else:
+                            x_cat = None
+                            x_num = x
+                        
+                        return self.model(x_cat, x_num)
+
+                # Check for categorical features
+                if estimator.embedding_info:
+                     logger.warning("DeepExplainer requires differentiable inputs. Categorical features are present. Falling back to KernelExplainer.")
+                     raise ValueError("Categorical features present")
+
+                wrapped_model = PyTorchWrapper(estimator.model, estimator.embedding_info)
+                wrapped_model.eval()
+                wrapped_model.to(estimator.device)
+                
+                # Background
+                background = preprocessor.transform(self.X_train.sample(min(100, len(self.X_train)), random_state=42))
+                if hasattr(background, "toarray"): background = background.toarray()
+                background_tensor = torch.tensor(background, dtype=torch.float32).to(estimator.device)
+                
+                explainer = shap.DeepExplainer(wrapped_model, background_tensor)
+                
+                X_tensor = torch.tensor(X_transformed.values, dtype=torch.float32).to(estimator.device)
+                shap_values = explainer.shap_values(X_tensor)
+                used_explainer = 'deep'
+                
+            except Exception as e:
+                logger.warning(f"DeepExplainer failed: {e}. Falling back to KernelExplainer.")
+                shap_values = None
+
+        if shap_values is None:
             # Generic explainer (might be slow)
             logger.warning(f"Using KernelExplainer for {model_name}. This might be slow.")
             # Use a small background sample
@@ -850,17 +914,64 @@ class psML:
             else:
                  explainer = shap.KernelExplainer(estimator.predict, background)
             
-        shap_values = explainer(X_transformed)
+            shap_values = explainer(X_transformed)
+            used_explainer = 'kernel'
         
         if plot:
+            shap_values_to_plot = shap_values
+            
+            # Debug info
+            logger.info(f"SHAP values type: {type(shap_values)}")
+            if isinstance(shap_values, list):
+                logger.info(f"SHAP values list length: {len(shap_values)}")
+                if len(shap_values) > 0:
+                     if hasattr(shap_values[0], 'shape'):
+                        logger.info(f"SHAP values[0] shape: {shap_values[0].shape}")
+            elif hasattr(shap_values, 'shape'):
+                logger.info(f"SHAP values shape: {shap_values.shape}")
+            
+            logger.info(f"X_transformed shape: {X_transformed.shape}")
+            logger.info(f"Feature names length: {len(feature_names)}")
+            
+            # Handle list output from explainer (common in DeepExplainer and KernelExplainer)
+            if isinstance(shap_values, list):
+                if len(shap_values) == 1:
+                    logger.info("Unwrapping SHAP values list (length 1)")
+                    shap_values_to_plot = shap_values[0]
+                elif len(shap_values) == 2 and self.config['dataset']['task_type'] == 'classification':
+                     # For binary classification, usually index 1 is the positive class
+                     logger.info("Using SHAP values for positive class (index 1)")
+                     shap_values_to_plot = shap_values[1]
+            
+            # Handle 3D array with single output dimension (common in PyTorch binary classification)
+            if hasattr(shap_values_to_plot, 'shape') and len(shap_values_to_plot.shape) == 3:
+                if shap_values_to_plot.shape[2] == 1:
+                    logger.info("Squeezing SHAP values last dimension (1)")
+                    shap_values_to_plot = shap_values_to_plot.squeeze(2)
+                elif shap_values_to_plot.shape[2] == 2 and self.config['dataset']['task_type'] == 'classification':
+                    logger.info("Using SHAP values for positive class (index 1) from 3D array")
+                    shap_values_to_plot = shap_values_to_plot[:, :, 1]
+
+            # Determine max_display
+            plot_kwargs = kwargs.copy()
+            if max_display is not None:
+                plot_kwargs['max_display'] = max_display
+            elif model_name == 'random_forest':
+                 plot_kwargs['max_display'] = 2
+
             if plot_type == 'summary':
-                shap.summary_plot(shap_values, X_transformed, **kwargs)
+                shap.summary_plot(shap_values_to_plot, X_transformed, **plot_kwargs)
             elif plot_type == 'bar':
-                shap.summary_plot(shap_values, X_transformed, plot_type='bar', **kwargs)
+                shap.summary_plot(shap_values_to_plot, X_transformed, plot_type='bar', **plot_kwargs)
             elif plot_type == 'heatmap':
-                shap.plots.heatmap(shap_values, **kwargs)
+                shap.plots.heatmap(shap_values_to_plot, **plot_kwargs)
             elif plot_type == 'waterfall':
                 # Waterfall plot usually needs a single instance
-                shap.plots.waterfall(shap_values[0], **kwargs)
+                # If shap_values_to_plot is a matrix, take the first one? 
+                # Or user should pass X as single row.
+                if hasattr(shap_values_to_plot, 'shape') and len(shap_values_to_plot.shape) > 1:
+                     # This might fail if it's not an Explanation object
+                     pass
+                shap.plots.waterfall(shap_values_to_plot[0], **plot_kwargs)
             
         return shap_values
