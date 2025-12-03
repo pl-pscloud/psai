@@ -193,6 +193,12 @@ class psML:
         return model
 
     def optimize_all_models(self) -> None:
+        """
+        Optimizes all enabled models defined in the configuration.
+        
+        Iterates through the supported models (LightGBM, XGBoost, CatBoost, Random Forest, PyTorch)
+        and calls optimize_model for each if it is enabled in the config.
+        """
         self.create_preprocessor()
         
         # List of supported models
@@ -203,11 +209,26 @@ class psML:
                 self.optimize_model(model_name)
 
     def create_preprocessor(self) -> None:
+        """
+        Creates and fits the data preprocessor based on the configuration and training data.
+        
+        The preprocessor handles missing values, scaling, encoding, and other transformations.
+        It also identifies column types (numerical, categorical, etc.) and stores them.
+        """
         preprocessor, columns = create_preprocessor(self.config['preprocessor'], self.X_train)
         self.preprocessor = preprocessor
         self.columns = columns
 
     def scores(self, return_json: bool = False) -> Union[Dict[str, Any], str]:
+        """
+        Retrieves the scores of trained models.
+
+        Args:
+            return_json: If True, returns the scores as a JSON string. Otherwise, returns a dictionary.
+
+        Returns:
+            A dictionary or JSON string containing the CV and Test scores for each trained model.
+        """
         results = {}
         for model_name in ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']:
             if self.config['models'].get(model_name, {}).get('enabled', False):
@@ -252,6 +273,15 @@ class psML:
         return np.sqrt(mean_squared_error(np.log1p(y_true_safe), np.log1p(y_pred_safe)))
 
     def get_evaluation_metric(self, metric_name: str) -> Callable:
+        """
+        Returns the evaluation metric function based on the metric name.
+
+        Args:
+            metric_name: The name of the metric (e.g., 'acc', 'f1', 'auc', 'rmse', 'mae').
+
+        Returns:
+            A callable metric function that takes (y_true, y_pred) as arguments.
+        """
         metric_mapping = {
             'acc': lambda y_true, y_pred: accuracy_score(y_true, np.argmax(y_pred, axis=1)) if self.is_multiclass else accuracy_score(y_true, (y_pred >= 0.5).astype(int)),
             'f1': lambda y_true, y_pred: f1_score(y_true, np.argmax(y_pred, axis=1), average='weighted') if self.is_multiclass else f1_score(y_true, (y_pred >= 0.5).astype(int), average='binary'),
@@ -294,6 +324,23 @@ class psML:
             model.fit(X_train, y_train, **fit_params)
 
     def optimize_model(self, model_name: str):
+        """
+        Optimizes hyperparameters for a specific model using Optuna.
+
+        Args:
+            model_name: The name of the model to optimize (e.g., 'lightgbm', 'xgboost').
+        
+        This method performs the following steps:
+        1.  Initializes the model adapter.
+        2.  Defines the Optuna objective function, which includes:
+            -   Cross-validation loop.
+            -   Model training and evaluation.
+            -   Pruning of unpromising trials.
+        3.  Creates and runs the Optuna study.
+        4.  Stores the best parameters and CV score.
+        5.  Retrains the model on the full training dataset using the best parameters.
+        6.  Logs results to MLflow if enabled.
+        """
         if self.preprocessor is None:
             self.create_preprocessor()
 
@@ -523,6 +570,12 @@ class psML:
         return None
 
     def build_ensemble_cv(self) -> None:
+        """
+        Builds ensemble models (Stacking and/or Voting) using Cross-Validation predictions.
+        
+        This method uses the out-of-fold predictions from the CV process of individual models
+        to train the ensemble meta-learner (for stacking) or combine predictions (for voting).
+        """
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['cv_enabled'] or self.config['voting']['cv_enabled']):
             logger.info(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
         
@@ -537,6 +590,14 @@ class psML:
             self._build_voting(use_cv_models=True)
 
     def build_ensemble_final(self) -> None:
+        """
+        Builds ensemble models (Stacking and/or Voting) using the final trained models.
+        
+        This method uses the predictions of the final models (trained on the full training set)
+        to train the ensemble meta-learner (for stacking) or combine predictions (for voting).
+        Note: Stacking on final models usually requires a separate hold-out set or 'prefit' mode
+        to avoid overfitting, depending on the configuration.
+        """
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['final_enabled'] or self.config['voting']['final_enabled']):
             logger.info(f'\n===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================\n')
         

@@ -949,13 +949,14 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
 
     def consult_ensamble(self, execute_code: bool = False):
         """
-        Consults the LLM to generate a ensamble configuration stacking / voting.
+        Consults the LLM to generate an ensemble configuration (Stacking/Voting).
         
         Args:
-            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
+            execute_code: If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
             
         Returns:
-            Union[Dict[str, Any], str]: The generated models configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
+            The generated ensemble configuration as a dictionary if `execute_code` is True and parsing succeeds, 
+            otherwise the raw string response from the LLM.
         """
 
         if self.df is None:
@@ -1037,7 +1038,13 @@ Based on the analysis, create the best configuration for mentioned earlier ensam
 
     def consult_results(self):
         """
-        Consults the LLM to analyze the results of the models.
+        Consults the LLM to analyze the results of the trained models.
+        
+        This method gathers the scores from the psML instance and asks the LLM to provide
+        a comprehensive analysis, including model comparison, insights, and interpretation.
+        
+        Returns:
+            The LLM's analysis of the model results.
         """
         # 1. Check if PSML is None
         if self.psml is None:
@@ -1119,15 +1126,27 @@ Scores for models - metrics from models config:
 
     def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = False, report_filename: str = "report.html") -> psML:
         """
-        End-to-end machine learning process.
+        Executes the complete end-to-end machine learning process.
+        
+        This includes:
+        1. Exploratory Data Analysis (EDA)
+        2. Dataset Configuration
+        3. Feature Engineering
+        4. Preprocessing Configuration
+        5. Model Selection & Configuration
+        6. Model Training & Optimization
+        7. Results Analysis
+        8. Ensemble Configuration & Training
+        9. Final Results Analysis
+        10. Report Generation (optional)
         
         Args:
-            execute_code (bool): Whether to execute the generated code.
-            save_report (bool): Whether to save the report.
-            report_filename (str): The name of the report file.
+            execute_code: Whether to execute the generated code and configurations.
+            save_report: Whether to save the final report to an HTML file.
+            report_filename: The name of the report file.
             
         Returns:
-            psML: The trained psML object.
+            The trained psML object.
         """
 
         if self.target not in self.df.columns:

@@ -12,6 +12,11 @@ import numpy as np
 
 # Define the identity function for feature names
 def identity_feature_names_out(transformer, feature_names_in):
+    """
+    Identity function for feature names.
+    
+    Returns the input feature names as is. Used for transformers that don't change feature names.
+    """
     return feature_names_in
 
 # Create the transformer
@@ -81,7 +86,18 @@ cat_scaler_config = {
 }
 
 def create_preprocessor(config, X):
-
+    """
+    Creates a Scikit-Learn ColumnTransformer for data preprocessing.
+    
+    Args:
+        config: Configuration dictionary specifying imputers, scalers, and encoders.
+        X: The training data (DataFrame) used to categorize features.
+        
+    Returns:
+        A tuple containing:
+        - preprocessor: The constructed ColumnTransformer (or Pipeline if dim reduction is used).
+        - columns: A dictionary of feature categories (numerical, categorical, etc.).
+    """
     columns = categorize_features(X)
     # Create numerical transformer with hyperparameterized SimpleImputer
     numerical_transformer = Pipeline(steps=[
@@ -143,6 +159,15 @@ def create_preprocessor(config, X):
     return preprocessor, columns
 
 def categorize_features(X):
+    """
+    Categorizes features into numerical, categorical, skewed, outlier, etc.
+    
+    Args:
+        X: The input DataFrame.
+        
+    Returns:
+        A dictionary containing lists of column names for each category and embedding info.
+    """
     # Separate categorical and numerical features
     cat_cols = X.select_dtypes(include=['object','category']).columns
     num_cols = X.select_dtypes(include=['int32', 'int64','float64']).columns

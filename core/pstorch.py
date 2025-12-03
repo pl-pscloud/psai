@@ -15,6 +15,12 @@ import os
 warnings.filterwarnings('ignore')
 
 class RMSLELoss(nn.Module):
+    """
+    Root Mean Squared Logarithmic Error Loss.
+    
+    Computes the RMSLE between the prediction and the target.
+    Ensures non-negative values by clamping before taking the logarithm.
+    """
     def __init__(self, eps=1e-6):
         super(RMSLELoss, self).__init__()
         self.eps = eps
@@ -33,6 +39,11 @@ class RMSLELoss(nn.Module):
         return loss
 
 class MAPE_Loss(nn.Module):
+    """
+    Mean Absolute Percentage Error Loss.
+    
+    Computes the MAPE between the prediction and the target.
+    """
     def __init__(self, eps=1e-6):
         super().__init__()
         self.eps = eps
@@ -41,6 +52,15 @@ class MAPE_Loss(nn.Module):
         return torch.mean(torch.abs((target - pred) / (target + self.eps)))
 
 def get_activation(act_name):
+    """
+    Factory function to get PyTorch activation modules by name.
+    
+    Args:
+        act_name: Name of the activation function (e.g., 'relu', 'gelu', 'swish').
+        
+    Returns:
+        The corresponding PyTorch activation module or None if not found.
+    """
     if not act_name: return None
     act_name = str(act_name).lower()
     if act_name == 'relu': return nn.ReLU()
@@ -55,6 +75,16 @@ def get_activation(act_name):
     return None
 
 def get_norm(norm_name, dim):
+    """
+    Factory function to get PyTorch normalization modules by name.
+    
+    Args:
+        norm_name: Name of the normalization layer ('batch_norm', 'layer_norm').
+        dim: The dimension of the input features.
+        
+    Returns:
+        The corresponding PyTorch normalization module or None if not found.
+    """
     if not norm_name: return None
     norm_name = str(norm_name).lower()
     if norm_name == 'batch_norm': return nn.BatchNorm1d(dim)
@@ -62,6 +92,17 @@ def get_norm(norm_name, dim):
     return None
 
 def initialize_weights(layer, weight_init='default', verbose=0):
+    """
+    Initializes weights of a layer based on the specified method.
+    
+    Args:
+        layer: The PyTorch layer to initialize.
+        weight_init: Initialization method ('default', 'xavier_uniform', 'kaiming_uniform', etc.).
+        verbose: Verbosity level.
+        
+    Returns:
+        The initialized layer.
+    """
     if weight_init == 'default':
         return layer
         
@@ -82,6 +123,11 @@ def initialize_weights(layer, weight_init='default', verbose=0):
     return layer
 
 class ResidualBlock(nn.Module):
+    """
+    A Residual Block with two linear layers, normalization, activation, and dropout.
+    
+    Structure: Input -> Linear -> Norm -> Act -> Dropout -> Linear -> Norm -> Add Residual -> Act -> Output
+    """
     def __init__(self, in_features, out_features, activation='relu', norm=None, dropout=0.0, weight_init='default'):
         super(ResidualBlock, self).__init__()
         
@@ -122,6 +168,11 @@ class ResidualBlock(nn.Module):
         return out
 
 class TabularMLP(nn.Module):
+    """
+    Multi-Layer Perceptron for tabular data with support for embeddings and residual blocks.
+    
+    Can be configured with various layer types ('dense', 'residual', 'dropout'), activations, and normalizations.
+    """
     def __init__(self, embedding_info, n_num_features, layers_config, weight_init='default', verbose=0):
         super(TabularMLP, self).__init__()
         self.verbose = verbose
@@ -195,6 +246,12 @@ class TabularMLP(nn.Module):
         return self.mlp(x)
 
 class FTTransformer(nn.Module):
+    """
+    FT-Transformer (Feature Tokenizer + Transformer) for tabular data.
+    
+    References:
+    - Gorishniy et al., "Revisiting Deep Learning Models for Tabular Data", NeurIPS 2021.
+    """
     def __init__(
         self, 
         embedding_info, 
@@ -279,6 +336,11 @@ class FTTransformer(nn.Module):
 
 
 class PyTorchBaseEstimator(BaseEstimator):
+    """
+    Base class for PyTorch-based Scikit-Learn estimators.
+    
+    Handles model initialization, training loop, validation, early stopping, and prediction.
+    """
     def __init__(
             self, 
             learning_rate=0.001, 
@@ -601,6 +663,11 @@ class PyTorchBaseEstimator(BaseEstimator):
         plt.show()
 
 class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
+    """
+    PyTorch-based Classifier compatible with Scikit-Learn.
+    
+    Supports binary and multiclass classification.
+    """
     def __init__(self, loss='bcelogit', **kwargs):
         super().__init__(loss=loss, **kwargs)
         self._classes = None
@@ -689,6 +756,11 @@ class PyTorchClassifier(PyTorchBaseEstimator, ClassifierMixin):
         return np.argmax(proba, axis=1)
 
 class PyTorchRegressor(PyTorchBaseEstimator, RegressorMixin):
+    """
+    PyTorch-based Regressor compatible with Scikit-Learn.
+    
+    Supports various regression loss functions (MSE, MAE, Huber, RMSLE, MAPE).
+    """
     def __init__(self, loss='mse', **kwargs):
         super().__init__(loss=loss, **kwargs)
 
