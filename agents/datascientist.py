@@ -16,7 +16,7 @@ import copy
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.output_parsers import StrOutputParser
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langgraph.checkpoint.memory import InMemorySaver
 import markdown
 import html
@@ -25,6 +25,16 @@ import time
 from psai.core.datasets import EDAReport
 from psai.core.config import CONFIG
 from psai.core.psml import psML
+from psai.agents.prompts import (
+    SYSTEM_PROMPT,
+    get_eda_prompt,
+    get_dataset_config_prompt,
+    get_preprocessor_prompt,
+    get_models_prompt,
+    get_ensamble_prompt,
+    get_results_prompt,
+    get_feature_engineering_prompt,
+)
 
 class DataScientist:
     def __init__(self, df: pd.DataFrame, target: str, model_provider: str = "google", model_name: str = "gemini-3-pro-preview", model_temperature: float = 1.0,  api_key: str = None, optuna_metric: str = None, optuna_trials: int = None, optuna_timeout: int = None, task_type: str = None, experiment_name: str = None):
@@ -99,124 +109,12 @@ class DataScientist:
         self.optuna_timeout = optuna_timeout
         self.task_type = task_type
         self.experiment_name = experiment_name
-        self.system_prompt = """
-##Your Persona: 
-You are AI DataScientist Agent, a world-class data scientist and machine learning architect. You possess deep, first-principles knowledge of algorithms, combined with a pragmatic, battle-tested approach to building and deploying real-world ML systems using Python. 
-Your primary mission is to empower users by transforming complex problems into practical, robust, and understandable solutions.
-
-##Core Competencies
- * Technical Stack Mastery: You have an expert-level command of the modern data science ecosystem.
- * Classical & Gradient Boosting: Scikit-learn, XGBoost, LightGBM, CatBoost, Random Forest.
- * Deep Learning: PyTorch (preferred for its flexibility and Pythonic nature).
- * Data Manipulation & Visualization: Pandas, NumPy, Polars, Matplotlib, Seaborn, Plotly, SciPy Scikit-learn.
- * MLOps & Workflow: MLflow (for experiment tracking), Optuna/Hyperopt (for hyperparameter tuning), DVC (for data versioning concepts).
- * Explainability: SHAP, LIME.
- * End-to-End Problem Solving: You think in terms of the entire project lifecycle.
- * Problem Framing: Translate business needs into quantifiable ML tasks (e.g., regression, classification, clustering).
- * Data-Centric AI: Emphasize rigorous exploratory data analysis (EDA), robust feature engineering, and strategies for handling real-world data imperfections (missing values, imbalanced classes, outliers).
- * Modeling: Select the right algorithm for the job, explaining the trade-offs (performance, speed, interpretability). Implement from simple baselines to complex, fine-tuned models.
- * Validation & Evaluation: Employ rigorous cross-validation and select appropriate performance metrics that align with the business goal.
-
-## Context
-You are an AI Agent that uses PSAI library to solve machine learning problems.
-
-## PSAI Library Description
-
-### Overview
-PSAI (Python System for AI) is a comprehensive machine learning library designed to automate and streamline the end-to-end data science workflow. It provides robust tools for Exploratory Data Analysis (EDA), Feature Engineering, Preprocessing, Model Training, Hyperparameter Optimization (using Optuna), and Ensemble Learning (Stacking and Voting).
-This library is structured to be used by an AI Agent to systematically solve ML problems.
-
-## Core Components
-
-### 1. Exploratory Data Analysis (EDA)
-**Module:** `psai.datasets`
-**Class:** `EDAReport`
-
-The `EDAReport` class generates detailed insights into the dataset, which are crucial for informing feature engineering and preprocessing strategies.
-
-*   **Initialization:** `EDAReport(df: pd.DataFrame, target: str = None)`
-*   **Key Methods:**
-    *   `basic_info()`: Returns shape, duplicates, missing values, and column metadata (type, skewness, kurtosis, outliers).
-    *   `numerical_analysis()`: Generates descriptive statistics, histograms, box plots, and Q-Q plots for numerical features.
-    *   `categorical_analysis()`: Analyzes unique values and distributions of categorical features.
-    *   `correlation_analysis()`: Computes and visualizes the correlation matrix.
-    *   `target_analysis()`: Analyzes the target variable's distribution and its relationship with other features.
-    *   `generate_full_report(save_html=None, save_pdf=None)`: Runs all analyses and can save to HTML/PDF or display in a notebook.
-
-### 2. Preprocessing & Feature Categorization
-**Module:** `psai.scalersencoders`
-**Function:** `create_preprocessor(config, X)`
-
-This module handles the transformation of data before modeling. It automatically categorizes features and applies specific pipelines based on the configuration.
-
-*   **Automatic Feature Categorization:**
-    *   **Numerical:** Standard numerical features.
-    *   **Skewed:** Numerical features with absolute skewness > 0.5.
-    *   **Outlier:** Numerical features with > 5% outliers (IQR method).
-    *   **Low Cardinality:** Categorical features with <= 10 unique values.
-    *   **High Cardinality:** Categorical features with > 10 unique values.
-
-*   **Available Transformers (Configurable in `config.py`):**
-    *   **Imputers:** `mean`, `median`, `most_frequent`, `constant`, `knn`, `iterative`.
-    *   **Scalers:** `standard`, `minmax`, `robust`, `quantile`, `yeo-johnson`, `box-cox`, `log`.
-    *   **Encoders:** `onehot`, `target`, `hashing`, `label`, `ordinal`.
-    *   **Dimension Reduction:** `pca`, `kpca`, `svd` (can be enabled/disabled).
-
-### 3. Machine Learning Engine
-**Module:** `psai.psml`
-**Class:** `psML`
-
-The `psML` class is the central engine for training and optimizing models.
-
-*   **Initialization:** `psML(config=None, X=None, y=None)`
-    *   If `config` is not provided, it loads from `psai.config`.
-    *   If `X` and `y` are not provided, it loads from the path specified in `config`.
-
-*   **Supported Models:**
-    *   **Gradient Boosting:** `lightgbm`, `xgboost`, `catboost`.
-    *   **Ensemble:** `random_forest`.
-    *   **Deep Learning:** `pytorch` (Supports MLP and FT-Transformer architectures).
-
-*   **Key Methods:**
-    *   `optimize_all_models()`: Runs Optuna hyperparameter optimization for all enabled models.
-    *   `optimize_model(model_name)`: Optimizes a specific model.
-    *   `build_ensemble_cv()`: Builds Stacking/Voting ensembles using Cross-Validation predictions.
-    *   `build_ensemble_final()`: Builds Stacking/Voting ensembles using final trained models.
-    *   `save_model(filepath)` / `load_model(filepath)`: Persist the entire pipeline.
-
-### 4. PyTorch Deep Learning
-**Module:** `psai.pstorch`
-
-Provides a Scikit-Learn compatible wrapper for PyTorch models, allowing them to be used seamlessly within the `psML` pipeline.
-
-*   **Architectures:**
-    *   **MLP (TabularMLP):** Configurable dense layers with Residual Blocks, Dropout, Batch/Layer Norm, and various activations (ReLU, GELU, Swish, etc.).
-    *   **FT-Transformer:** Feature Tokenizer + Transformer architecture for tabular data.
-*   **Features:**
-    *   Entity Embeddings for categorical features.
-    *   Custom Loss Functions: `RMSLELoss`, `MAPE_Loss`.
-    *   Early Stopping and Learning Rate Scheduling.
-
-## Configuration (`psai.config`)
-
-The behavior of the library is controlled by a central configuration dictionary `CONFIG`.
-
-*   **`dataset`**: Paths, target column, task type (`classification` or `regression`), metric, CV folds.
-*   **`preprocessor`**: Defines which imputer/scaler/encoder to use for each feature category (numerical, skewed, outlier, low/high cardinality).
-*   **`models`**:
-    *   Enable/Disable specific models.
-    *   Set Optuna trials, timeout, and metric.
-    *   Define fixed parameters (`params`) and search spaces (`optuna_params`).
-*   **`stacking` / `voting`**: Configure ensemble strategies (CV vs Final, Meta-model).
-*   **`output`**: Directories for saving models and results.
-
-
-"""
-        self.agent = create_react_agent(
+        self.system_prompt = SYSTEM_PROMPT
+        self.agent = create_agent(
             model=self.llm,
             tools=[],
             checkpointer=self.llm_memory,
-            prompt=self.system_prompt,
+            system_prompt=self.system_prompt,
             name="data_scientist_agent",
         )
 
@@ -311,54 +209,7 @@ The behavior of the library is controlled by a central configuration dictionary 
                     summary.append(str(item['content']))
             # Skip plots for text summary
         
-        eda_prompt = f"""
-Your task is to make comprehensive, professional textual analyse of results of EDA.
-
-The target column is: '{self.target}'
-
-{task_type_info}
-
-{optuna_metrics_info}
-
-{optuna_trials_info}
-
-{optuna_timeout_info}
-
-Here is an analysis of the dataset:
-{summary}
-
-
-Based on this eda summary, perform the following:
-
-## Analysis and Key Findings (Textual)
-
-Based on the summary above, provide a structured analysis:
-
-### Data Quality Assessment
-* Note features with significant **missing values (NaNs)** and suggest an imputation strategy (e.g., mean/median for numerical, mode for categorical, or dropping the column).
-* Report the presence of **duplicates** and **outliers** if flagged in the summary.
-* Identify features which are skewd, outliers or have high-cardinality and suggest a strategy to handle them.
-
-### Feature Engineering
-* Suggest feature engineering steps based on the EDA results.
-* Suggest feature scaling and encoding strategies.
-
-### Preprocessing
-* Suggest a preprocessing pipeline based on the EDA results.
-* Explain  why you suggest this preprocessing and explain how choosen preprocessing are related to EDA results and how tranformation help models to perform better.
-
-### Models Selection
-* Suggest a models based on the EDA results.
-* Explain  why you suggest this models and explain how choosen models are related to EDA results.
-
-### Explainability
-* Explain in details why you propose some steps, how it works and what user can expect from it.
-
-### CoT
-* Deep think about your analysis and possible best practices.
-* Provide a clear chain of thought (CoT) for your analysis.
-
-"""
+        eda_prompt = get_eda_prompt(target=self.target, summary=summary, task_type_info=task_type_info, optuna_metrics_info=optuna_metrics_info, optuna_trials_info=optuna_trials_info, optuna_timeout_info=optuna_timeout_info)
 
         # 4. Get Code from LLM
         print("Consulting LLM for EDA...")
@@ -379,37 +230,7 @@ Based on the summary above, provide a structured analysis:
         """
         print("Generating dataset config...")
         
-        dataset_config_prompt = f"""
-Your task is to suggest a dataset config for the dataset.
-
-The target column is: '{self.target}'
-
-Here is an analysis of the dataset:
-
-DATASET_CONFIG = {{
-    'train_path': 'datasets/train_multicalss.csv',  # Path to the training CSV file
-    'target': 'Species',                            # Name of the target column to predict
-    'id_column': 'Id',                              # Name of the ID column (will be set as index)
-    'test_size': 0.2,                               # Proportion of data to use for the hold-out test set
-    'task_type': 'classification',                  # Type of ML task: 'classification' or 'regression'
-    'metric': 'auc',                                # Evaluation metric (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-    'cv_folds': 5,                                  # Number of cross-validation folds
-    'random_state': 42,                             # Seed for reproducibility
-    'verbose': 2                                  # Verbosity level inherited from global setting
-}}
-
-Based on this analysis, create the best dataset config for the dataset using the values from the DATASET_CONFIG.
-
-Metric must be select from that list:
-['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape']
-
-**Constraints**:
--   The config MUST be in json format.
--   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
--   Handle potential errors gracefully if possible.
-
-Write the code now.
-"""
+        dataset_config_prompt = get_dataset_config_prompt(target=self.target)
 
         # 4. Get Code from LLM
         print("Consulting LLM for dataset config...")
@@ -458,26 +279,7 @@ Write the code now.
 
         
         # 3. Prompt Engineering
-        feature_engineering_prompt = f"""
-Your task is to write a Python function `feature_engineering(df)` that takes a pandas DataFrame `df` as input and returns `X` (features DataFrame) and `y` (target Series/DataFrame).
-
-Based on this analysis, perform the following in your code:
-1.  **Feature Engineering**: Create new features that might be useful for prediction (e.g., interactions, binning, extraction from text/dates).
-2.  **Drop Duplicates**: If any.
-3.  **Target Label Encoding**: If multiclass target, encode it using label encoding.
-4.  **Split X and y**: Separate the target from the features. Drop the target column from X.
-
-**Constraints**:
--   Imputing, scaling, one-hot encoding etc will be done in preprocessor step, not in feature engineering, add only new features.
--   The function MUST be named `feature_engineering`.
--   It MUST accept a single argument `df`.
--   It MUST return a tuple `(X, y)`.
--   Use `pandas` and `numpy`. Assume they are imported as `pd` and `np`.
--   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
--   Handle potential errors gracefully if possible.
-
-Write the code now.
-"""
+        feature_engineering_prompt = get_feature_engineering_prompt(self.target)
         
         # 4. Get Code from LLM
         print("Consulting LLM for Feature Engineering...")
@@ -521,7 +323,7 @@ Write the code now.
             print(f"Error executing generated code: {e}")
             raise
 
-    def consult_preprocessor(self, execute_code: bool = False):
+    def consult_preprocessor_config(self, execute_code: bool = False):
         """
         Consults the LLM to generate a preprocessor configuration.
         
@@ -570,84 +372,7 @@ Write the code now.
             },
         }
 
-        preprocessor_prompt = f"""
-Your task is to choose best methods for preprocessor for the dataset.
-
-The preprocessor default config is (json format):
-===
-PREPROCESSOR_CONFIG = {json.dumps(preprocessor_config, indent=4)}
-===
-
-values you can choose:
-dim_config = {{
-    'none': None,
-    'pca': PCA(n_components=5,svd_solver='auto'),
-    'pca_10': PCA(n_components=10,svd_solver='auto'),
-    'kpca': KernelPCA(n_components=5, kernel='rbf', gamma=1),
-    'kpca_10': KernelPCA(n_components=10, kernel='rbf', gamma=0.1),
-    'svd': TruncatedSVD(n_components=5),
-    'svd_10': TruncatedSVD(n_components=10),
-}}
-
-
-
-numerical_imputer_config = {{
-    'none': None,
-    'mean': SimpleImputer(strategy='mean'),
-    'median': SimpleImputer(strategy='median'),
-    'constant': SimpleImputer(strategy='constant', fill_value=-1),
-    'knn': KNNImputer(n_neighbors=5),
-    'knn_10': KNNImputer(n_neighbors=10),
-    'iterative': IterativeImputer(),
-}}
-
-numerical_scaler_config = {{
-    'none': None,
-    'standard': StandardScaler(),
-    'minmax': MinMaxScaler(feature_range=(0, 1)),
-    'robust': RobustScaler(),
-    'quantile': QuantileTransformer(output_distribution='normal'),
-    'yeo-johnson': PowerTransformer(method='yeo-johnson', standardize=True),
-    'box-cox': PowerTransformer(method='box-cox', standardize=True),
-    'log': Logtransformer,
-}}
-
-cat_imputer_config = {{
-    'none': None,
-    'most_frequent': SimpleImputer(strategy='most_frequent'),
-    'constant': SimpleImputer(strategy='constant', fill_value='Unknown')
-}}
-
-cat_encoder_config = {{
-    'none': None,
-    'onehot': OneHotEncoder(handle_unknown='ignore'),
-    'target': TargetEncoder(smooth=0.1),
-    'target_0.5': TargetEncoder(smooth=0.5),
-    'target_1': TargetEncoder(smooth=1),
-    'target_10': TargetEncoder(smooth=10),
-    'hashing': FeatureHasher(n_features=10, input_type='string'),
-    'label': LabelEncoder(),
-    'ordinal': OrdinalEncoder(handle_unknown='use_encoded_value', unknown_value=-1),
-}}
-
-cat_scaler_config = {{
-    'none': None,
-    'standard': StandardScaler(),
-    'minmax': MinMaxScaler(feature_range=(0, 1)),
-    'robust': RobustScaler(),
-    'quantile': QuantileTransformer(n_quantiles=10, random_state=0),
-    'log': FunctionTransformer(np.log1p, validate=True),
-}}
-
-Based on this analysis, create the best preprocessor for the dataset using the values from the config.
-
-**Constraints**:
--   The config MUST be in json format.
--   Do NOT include any markdown formatting (like ```python ... ``` or ```json ... ``` ) in your response. Just the code.
--   Handle potential errors gracefully if possible.
-
-Write the code now.
-"""
+        preprocessor_prompt = get_preprocessor_prompt(preprocessor_config=preprocessor_config)
         
         # 4. Get Code from LLM
         print("Consulting LLM for Preprocessor...")
@@ -676,7 +401,7 @@ Write the code now.
             # If parsing fails, return the raw string so the user can see what happened
             return code_preprocessor
 
-    def consult_models(self, execute_code: bool = False):
+    def consult_models_config(self, execute_code: bool = False):
         """
         Consults the LLM to generate a models configuration.
         
@@ -695,7 +420,7 @@ Write the code now.
         if self.ai_eda_summary is None:
             self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
-        from psai.config import CONFIG as MODELS_CONFIG
+        from psai.core.config import CONFIG as MODELS_CONFIG
 
         optuna_n_jobs = 1        
         cpu_count = os.cpu_count()
@@ -711,212 +436,7 @@ Write the code now.
         print("CPU available cores: ", cpu_count)
         print("\n")
         
-        verbose = 2                                             # Verbosity level (0: silent, 1: minimal, 2: detailed)
-        models_enabled = {                                      # Master toggle to enable/disable specific models
-            'lightgbm': False,
-            'xgboost': False,
-            'catboost': False,
-            'random_forest': False,
-            'pytorch': False,
-            'stacking': False,
-            'voting': False,
-        }
-
-        models_prompt = f"""
-Your task is to enable/disable models and tune parameters for machine learning optimization with optuna for analyzed dataset.
-
-GPU available: {gpu_available}
-GPU model: {gpu_model}
-CPU available cores: {cpu_count}
-
-The model_config default is (json format):
-===
-MODELS_CONFIG = MODELS_CONFIG = {{
-    'lightgbm': {{
-        'enabled': True, # Enable/Disable LightGBM
-        'optuna_trials': 10,                   # Number of hyperparameter search trials
-        'optuna_timeout': 3600,                # Max time (seconds) for optimization
-        'optuna_metric': 'rmse_safe',          # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-        'optuna_n_jobs': 1,                    # Parallel jobs for Optuna
-        'params': {{                            # Fixed parameters (not optimized)
-            'verbose': verbose,
-            'objective': 'rmse',               # Learning objective (e.g., regression:['mse','mae'], classification:['binary','multiclass'])
-            'device': 'gpu',                   # Hardware acceleration ('cpu' or 'gpu')
-            'eval_metric': 'rmse',             # Metric used for early stopping regression:['mse','mae'], classification:['auc','binary_error','neg_log_loss','multi_logloss', 'multi_error'])
-            'num_threads': 8,                  # Threads for model training
-            
-        }},
-        'optuna_params': {{                    # Hyperparameter search space
-            'boosting_type': {{'type': 'categorical', 'choices': ['gbdt', 'goss']}},
-            'lambda_l1': {{'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True}},
-            'lambda_l2': {{'type': 'float', 'low': 1e-8, 'high': 10.0, 'log': True}},
-            'num_leaves': {{'type': 'int', 'low': 20, 'high': 300}},
-            'feature_fraction': {{'type': 'float', 'low': 0.4, 'high': 1.0}},
-            'min_child_samples': {{'type': 'int', 'low': 5, 'high': 100}},
-            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
-            'min_split_gain': {{'type': 'float', 'low': 1e-8, 'high': 1.0, 'log': True}},
-            'max_depth': {{'type': 'int', 'low': 3, 'high': 20}},
-            'bagging_fraction': {{'type': 'float', 'low': 0.4, 'high': 1.0}},
-            'bagging_freq': {{'type': 'int', 'low': 1, 'high': 7}},
-            'num_class': 10,                   # Number of classes for multiclass classification (if task_type is 'classification')
-        }}
-    }},
-    'xgboost': {{
-    'enabled': True,                        # Enable/Disable XGBoost models
-        'optuna_trials': 10,                # Number of trials for Optuna hyperparameter optimization
-        'optuna_timeout': 3600,             # 3600 seconds = 1 hour 
-        'optuna_metric': 'rmse_safe',       # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-        'optuna_n_jobs': 1,                 # Number of jobs to run in parallel
-        'params': {{
-            'verbose': verbose,
-            'objective': 'reg:squarederror',        # Learning objective (e.g., regression:['reg:squarederror','reg:absoluteerror'], classification:['binary:logistic','multi:softprob'])
-            'device': 'gpu',                       # Hardware acceleration ('cpu' or 'gpu')
-            'eval_metric': 'rmse',                  # Metric used for early stopping regression:['rmse','mae'], classification:['auc','error','logloss'])
-            'nthread': 8,                # Threads for model training
-        }},
-        'optuna_params': {{                    # Hyperparameter search space
-            'booster': {{'type': 'categorical', 'choices': ['gbtree']}},
-            'max_depth': {{'type': 'int', 'low': 3, 'high': 20}},
-            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
-            'n_estimators': {{'type': 'int', 'low': 500, 'high': 3000}},
-            'subsample': {{'type': 'float', 'low': 0, 'high': 1}},
-            'lambda': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
-            'gamma': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
-            'alpha': {{'type': 'float', 'low': 1e-4, 'high': 5, 'log': True}},
-            'min_child_weight': {{'type': 'categorical', 'choices': [0.5, 1, 3, 5]}},
-            'colsample_bytree': {{'type': 'float', 'low': 0.5, 'high': 1}},
-            'colsample_bylevel': {{'type': 'float', 'low': 0.5, 'high': 1}}
-        }}
-    }},
-    'catboost': {{  
-        'enabled': True,                        # Enable/Disable CatBoost models
-        'optuna_trials': 10,                    # Number of trials for Optuna hyperparameter optimization
-        'optuna_timeout': 3600,                 # Time budget in seconds (1 hour)
-        'optuna_metric': 'rmse_safe',           # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-        'optuna_n_jobs': 1,                     # Number of parallel Optuna jobs (studies running at once)
-        'params': {{
-            'verbose': verbose,
-            'objective': 'RMSE',                # Learning objective (e.g., regression:['RMSE','MAE'], classification:['Logloss','MultiClass'])
-            'device': 'gpu',                    # Hardware acceleration ('cpu' or 'gpu')
-            'eval_metric': 'RMSE',              # Metric used for early stopping regression:['mse','mae'], classification:['AUC','Accuracy','Logloss'])
-            'thread_count': 8,                  # Threads for model training
-        }},
-        'optuna_params': {{                    # Hyperparameter search space
-            'n_estimators': {{'type': 'int', 'low': 100, 'high': 3000}},
-            'learning_rate': {{'type': 'float', 'low': 0.001, 'high': 0.2, 'log': True}},
-            'depth': {{'type': 'int', 'low': 4, 'high': 10}},
-            'l2_leaf_reg': {{'type': 'float', 'low': 1e-3, 'high': 10.0, 'log': True}},
-            'border_count': {{'type': 'int', 'low': 32, 'high': 128}},
-            'bootstrap_type': {{'type': 'categorical', 'choices': ['Bayesian', 'Bernoulli', 'MVS']}},
-            'feature_border_type': {{'type': 'categorical', 'choices': ['Median', 'Uniform', 'GreedyMinEntropy']}},
-            'leaf_estimation_iterations': {{'type': 'int', 'low': 1, 'high': 10}},
-            'min_data_in_leaf': {{'type': 'int', 'low': 1, 'high': 30}},
-            'random_strength': {{'type': 'float', 'low': 1e-9, 'high': 10, 'log': True}},
-            'grow_policy': {{'type': 'categorical', 'choices': ['SymmetricTree', 'Depthwise', 'Lossguide']}},
-            'subsample': {{'type': 'float', 'low': 0.6, 'high': 1.0}},
-            'bagging_temperature': {{'type': 'float', 'low': 0, 'high': 1}},
-            'max_leaves': {{'type': 'int', 'low': 2, 'high': 32}}
-        }}
-    }}   ,
-    'random_forest': {{
-        'enabled': True,                         # Enable/Disable Random Forest models
-        'optuna_trials': 10,                     # Number of trials for Optuna hyperparameter optimization
-        'optuna_timeout': 3600,                  # 3600 seconds = 1 hour 
-        'optuna_metric': 'rmse_safe',            # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-        'optuna_n_jobs': 1,                      # Number of jobs to run in parallel
-        'params': {{
-            'verbose': 1,
-            'n_jobs': 8
-        }},
-        'optuna_params': {{                    # Hyperparameter search space for RF
-            'n_estimators': {{'type': 'int', 'low': 100, 'high': 1000}},
-            'max_depth': {{'type': 'int', 'low': 3, 'high': 30}},
-            'min_samples_split': {{'type': 'int', 'low': 2, 'high': 20}},
-            'min_samples_leaf': {{'type': 'int', 'low': 1, 'high': 10}},
-            'max_features': {{'type': 'categorical', 'choices': ['sqrt', 'log2', None]}},
-            'bootstrap': {{'type': 'categorical', 'choices': [True, False]}},
-            'max_samples': {{'type': 'float', 'low': 0.5, 'high': 1.0}}
-        }}
-    }}   ,
-    'pytorch': {{
-        'enabled': True,                         # Enable/Disable PyTorch models
-        'optuna_trials': 10,                     # Number of trials for Optuna hyperparameter optimization
-        'optuna_timeout': 3600,                  # 3600 seconds = 1 hour 
-        'optuna_metric': 'rmse_safe',            # Metric to optimize during Optuna trials (e.g., 'acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape')
-        'optuna_n_jobs': 1,                      # Number of jobs to run in parallel
-        'params': {{
-            "train_max_epochs": 50,                 # Number of epochs to train for
-            "train_patience": 5,                    # Number of epochs to wait before early stopping
-            "final_max_epochs": 1000,               # Number of epochs to train for
-            "final_patience": 20,                   # Number of epochs to wait before early stopping
-            "objective": "mse",                     # objective (e.g., regression:['mse','mae','huber','rmsle','mape'], classification:['bce','bcelogit','crossentropy']
-            "device": 'gpu',                        # 'cpu', 'gpu'
-            'verbose': 1,
-            'embedding_info': ['time_of_day'],      # embedding info: should be list of strings of categorical columns with high cardinality 
-            'num_threads': 8,
-        }}   ,
-        'optuna_params': {{                                                                      
-            # Hyperparameter search space for PyTorch models
-            'model_type': {{'type': 'categorical', 'choices': ['mlp']}},                         #model type: ['mlp', 'ft_transformer'] 
-            'optimizer_name': {{'type': 'categorical', 'choices': ['adam']}},                    #optimizer: ['adam', 'nadam', 'adamax', 'adamw', 'sgd', 'rmsprop] 
-            'learning_rate': {{'type': 'categorical', 'choices': [0.01]}},                       #learning rate: ['0.01', '0.001'] 
-            'batch_size': {{'type': 'categorical', 'choices': [64, 128, 256]}},                  #batch size: ['64', '128', '256'] 
-            'weight_init': {{'type': 'categorical', 'choices': ['default']}},                    #weight initialization: ['default', 'xavier', 'kaiming'] 
-            'net': {{'type': 'categorical', 'choices': [                                         
-                # MLP ReLU without batch or layer norm
-                [
-                    {{'type': 'dense', 'out_features': 16, 'activation': 'relu', 'norm': None}},
-                    {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
-                ],
-                # MLP GELU with batch norm
-                [
-                    {{'type': 'dense', 'out_features': 32, 'activation': 'gelu', 'norm': 'batch_norm'}},
-                    {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
-                ],
-                # MLP Swish/SILU with layer norm
-                [
-                    {{'type': 'dense', 'out_features': 64, 'activation': 'swish', 'norm': 'layer_norm'}},
-                    {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 32, 'activation': 'swish', 'norm': 'layer_norm'}},
-                    {{'type': 'dropout', 'p': 0.1}},
-                    {{'type': 'dense', 'out_features': 1, 'activation': None, 'norm': None}}
-                ],
-
-            ]}},
-            # FT-Transformer Params
-            'd_token': {{'type': 'categorical', 'choices': [64, 128, 192, 256]}},
-            'n_layers': {{'type': 'int', 'low': 1, 'high': 4}},
-            'n_heads': {{'type': 'categorical', 'choices': [4, 8]}},
-            'd_ffn_factor': {{'type': 'float', 'low': 1.0, 'high': 2.0}},
-            'attention_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.3}},
-            'ffn_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.3}},
-            'residual_dropout': {{'type': 'float', 'low': 0.0, 'high': 0.2}}
-        }}   
-    }}
-}}
-===
-
-Based on the analysis, create the best configuration for mentioned earlier models and analyzed dataset.
-
-The eval metrics list from you can choose for MODELS_CONFIG:
-===
-EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rmsle_safe', 'rmse_safe', 'mae', 'mape']
-===
-
-**Constraints**:
--   The config MUST be in json format.
--   Important: Do NOT remove / change any keys in json.
--   Only change values if you think it is needed.
--   If possible for GPU use it, if not use CPU. values: 'cpu', 'gpu'
--   When set params for catboost if choose device = 'gpu' use bootstrap_type = 'Bayesian' or 'Bernoulli'
--   When multiclass are selected for lightgbm set num_class = x (where x is number of classes)
--   Always choose params from scope provided in comments as it is. eg if name is 'adamw' use 'adamw' not 'adamW'
--   For Pytorch on output layer do not use batch_layer or layer_norm.
--   Do NOT include any markdown formatting (like ```python ... ``` or ```json ... ``` ) in your response. Just the code.
--   Handle potential errors gracefully if possible.
-"""
+        models_prompt = get_models_prompt(gpu_available=gpu_available, gpu_model=gpu_model, cpu_count=cpu_count, verbose=1)
         
         # 4. Get Code from LLM
         print("Consulting LLM for Models Config...")
@@ -947,7 +467,7 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
 
 
 
-    def consult_ensamble(self, execute_code: bool = False):
+    def consult_ensamble_config(self, execute_code: bool = False):
         """
         Consults the LLM to generate an ensemble configuration (Stacking/Voting).
         
@@ -965,47 +485,9 @@ EVAL_METRICS = ['acc', 'f1', 'auc', 'prec', 'mse', 'rmse', 'msle', 'rmsle', 'rms
         if self.ai_eda_summary is None:
             self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
 
-        from psai.config import CONFIG as MODELS_CONFIG
+        from psai.core.config import CONFIG as MODELS_CONFIG
 
-        ensamble_prompt = f"""
-Your task is to enable/disable ensamble models (stacking / voting) and tune parameters for ensamble models for analyzed dataset.
-
-The ensamble config default is (json format):
-===
-ENSAMBLE_CONFIG = {{
-    'stacking': { json.dumps(CONFIG['stacking'], indent=10) },
-    'voting': { json.dumps(CONFIG['voting'], indent=10) }
-}}
-
-Params Stacking:
-'cv_enabled': bool,                                                             # Enable stacking on models from Optuna Cross-Validation best trial if choosen eg. lightbm stacking is builded on all lightbm models from best cv trial during optuna optimalization 
-'cv_folds': int,                                                                # Folds for stacking CV (if not using prefit)
-'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for stacking CV
-'final_enabled': bool,                                                          # Enable stacking for the final model
-'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for stacking final models
-'meta_model': str,                                                              # The model used to aggregate base model predictions
-'use_features': bool,                                                           # If False the meta-model will only learn from the predictions of the base models, not the original features.
-'prefit': bool,                                                                 # If True, uses existing trained models (faster). If False, retrains.
-
-Params Voting:
-'cv_enabled': bool,                                                             # Enable voting on finals models builded during optuna optimalization 
-'cv_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],       # Models for voting CV
-'final_enabled': bool,                                                          # Enable voting ensemble for the final model
-'final_models': ['lightgbm','xgboost','catboost','random_forest','pytorch'],    # Models for voting final models
-'use_features': bool,                                                           # If False the meta-model will only learn from the predictions of the base models, not the original features.
-'prefit': bool,                                                                 # If True, uses existing trained models (faster). If False, retrains.
-
-
-===
-
-Based on the analysis, create the best configuration for mentioned earlier ensamble models for analyzed dataset.
-
-**Constraints**:
--   The config MUST be in json format.
--   Do NOT remove / change / add any keys in json, only change values if you think it is needed.
--   Do NOT include any markdown formatting (like ```python ... ```) in your response. Just the code.
--   Handle potential errors gracefully if possible.
-"""
+        ensamble_prompt = get_ensamble_prompt(stacking_config=CONFIG['stacking'], voting_config=CONFIG['voting'])
         
         # 4. Get Code from LLM
         print("Consulting LLM for Ensamble Config...")
@@ -1075,26 +557,7 @@ Based on the analysis, create the best configuration for mentioned earlier ensam
         else:
             scores_display = "No scores available for analysis."
 
-        results_prompt = f"""
-Your task is to make comprehensive analysis of tuned models and their results of machine learning optimization with optuna.
-
-Explain how to read that scores, explain what is the best model and why.
-
-All scores are calculated with CrossValidation inside loop of optuna.
-
-Scores for models - metrics from models config:
-===
-{scores_display}
-===
-
-**Constraints**:
-- Analyze results and get insights
-- Explain why that insights have sense
-- Explain the interpretation for results
-- If builded leaderboard of models show them as list not table.
-- Handle potential errors gracefully if possible.
-- 
-"""
+        results_prompt = get_results_prompt(scores_display=scores_display)
         
         # 4. Get Code from LLM
         print("Consulting LLM for results analysis...")
