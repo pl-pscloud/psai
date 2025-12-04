@@ -224,7 +224,7 @@ class DataScientist:
             
         print("EDA summary generated.")
 
-    def consult_dataset_config(self, execute_code: bool = False) -> str:
+    def consult_dataset_config(self, execute_code: bool = True) -> str:
         """
         Generates a text summary of the EDA report to feed into the LLM.
         """
@@ -238,26 +238,25 @@ class DataScientist:
         dataset_config =  self._final_message_text(response)
         
         print("-" * 40)
-        print("Generated dataset config:")
-        print("-" * 40)
-        print(dataset_config)
-        print("-" * 40)
-            
+        print("Generating dataset config...")
         try:
-            self.ai_dataset_config = json.loads(dataset_config)
             if execute_code:
                 print("Executing generated config to create dataset config...")
+                self.ai_dataset_config = json.loads(dataset_config)
+                print("Dataset config executed.")
                 return self.ai_dataset_config
             else:
-                print("Code not executed. Returning dataset config (dict).")
-                return dataset_config
+                print("-" * 40)
+                print(dataset_config)
+                print("-" * 40)
+                print("Code not executed.")
+                return None
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
-            # If parsing fails, return the raw string so the user can see what happened
-            return dataset_config
+            return None
 
-    def consult_feature_engineering(self, execute_code: bool = False):
+    def consult_feature_engineering(self, execute_code: bool = True, return_X_y: bool = False):
         """
         Analyzes the dataset and performs feature engineering using LLM-generated code.
         
@@ -287,14 +286,10 @@ class DataScientist:
         code_feature_engineering =  self._final_message_text(response)        
         
         print("-" * 40)
-        print("Generated Feature Engineering Code:")
-        print("-" * 40)
-        print(code_feature_engineering)
-        print("-" * 40)
+        print("Generating Feature Engineering Code...")
                 
         
         try:
-            self.ai_feature_engineering_code = code_feature_engineering
             if execute_code:
                 # 5. Execute Code
                 print("Executing generated code...")
@@ -309,21 +304,26 @@ class DataScientist:
                 self.X, self.y = self.ai_feature_engineering(self.df)
                 
                 print(f"Feature Engineering complete. X shape: {self.X.shape}, y shape: {self.y.shape}")
-                return self.X, self.y
+                
+                if return_X_y:
+                    return self.X, self.y
+                else:
+                    return None
             else:
-                print("Code not executed. Returning code instead.")
-                return code_feature_engineering
+                print("Code not executed.")
+                print("-" * 40)
+                print(code_feature_engineering)
+                print("-" * 40)
+                return None
             
             if 'feature_engineering' not in local_scope:
                 raise ValueError("The generated code did not define a 'feature_engineering' function.")
-            
-            
             
         except Exception as e:
             print(f"Error executing generated code: {e}")
             raise
 
-    def consult_preprocessor_config(self, execute_code: bool = False):
+    def consult_preprocessor_config(self, execute_code: bool = True):
         """
         Consults the LLM to generate a preprocessor configuration.
         
@@ -379,29 +379,29 @@ class DataScientist:
         response = self.agent.invoke({"messages": [HumanMessage(content=preprocessor_prompt)]}, config=self.config)
         code_preprocessor =  self._final_message_text(response)       
         
-        
-        
         print("-" * 40)
-        print("Generated Preprocessor Code:")
-        print("-" * 40)
-        print(code_preprocessor)
-        print("-" * 40)
-        
+        print("Generating Preprocessor Code...")
+
         try:
-            self.ai_preprocessor = json.loads(code_preprocessor)
+            
             if execute_code:
                 print("Executing generated config to create preprocessor...")
+                self.ai_preprocessor = json.loads(code_preprocessor)
+                print("Preprocessor config executed.")
                 return self.ai_preprocessor
             else:
-                print("Code not executed. Returning preprocessor config (dict).")
-                return code_preprocessor
+                print("-" * 40)
+                print(code_preprocessor)
+                print("-" * 40)
+                print("Code not executed.")
+                return None
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
-            return code_preprocessor
+            return None
 
-    def consult_models_config(self, execute_code: bool = False):
+    def consult_models_config(self, execute_code: bool = True):
         """
         Consults the LLM to generate a models configuration.
         
@@ -446,28 +446,30 @@ class DataScientist:
         
         
         print("-" * 40)
-        print("Generated Models Config:")
-        print("-" * 40)
-        print(code_models)
-        print("-" * 40)
+        print("Generating Models Config...")
+
         
         try:
-            self.ai_models_config = json.loads(code_models)
             if execute_code:
                 print("Executing generated config to create models...")
+                self.ai_models_config = json.loads(code_models)
+                print("Models config executed.")
                 return self.ai_models_config
             else:
-                print("Code not executed. Returning models config (dict).")
-                return code_models
+                print("-" * 40)
+                print(code_models)
+                print("-" * 40)
+                print("Code not executed.")
+                return None
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
-            return code_models
+            return None
 
 
 
-    def consult_ensamble_config(self, execute_code: bool = False):
+    def consult_ensamble_config(self, execute_code: bool = True):
         """
         Consults the LLM to generate an ensemble configuration (Stacking/Voting).
         
@@ -497,18 +499,20 @@ class DataScientist:
         
         
         print("-" * 40)
-        print("Generated Ensamble Config:")
-        print("-" * 40)
-        print(ensamble_config)
-        print("-" * 40)
+        print("Generating Ensamble Config...")
+
         
         try:
-            self.ai_ensamble_config = json.loads(ensamble_config)
             if execute_code:
                 print("Executing generated config to create models...")
+                self.ai_ensamble_config = json.loads(ensamble_config)
+                print("Ensamble config executed.")
                 return self.ai_ensamble_config
             else:
-                print("Code not executed. Returning models config (dict).")
+                print("-" * 40)
+                print(ensamble_config)
+                print("-" * 40)
+                print("Code not executed")
                 return ensamble_config
             
         except Exception as e:
