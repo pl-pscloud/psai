@@ -568,7 +568,7 @@ class DataScientist:
         response = self.agent.invoke({"messages": [HumanMessage(content=results_prompt)]}, config=self.config)
         ai_results =  self._final_message_text(response)       
         
-        
+        self.ai_results_analysis = ai_results
         
         print("-" * 40)
         print("Generated Analysis:")
@@ -576,19 +576,8 @@ class DataScientist:
         print(self.ai_results_analysis)
         print("-" * 40)
         
-        try:
-            self.ai_results_analysis = ai_results
-            if self.ai_results_analysis:
-                print("Analysis executed. Returning analysis (str).")
-                return self.ai_results_analysis
-            else:
-                print("Analysis not executed. Returning analysis (str).")
-                return self.ai_results_analysis
-            
-        except Exception as e:
-            print(f"Error parsing or executing generated analysis: {e}")
-            # If parsing fails, return the raw string so the user can see what happened
-            return self.ai_results_analysis
+        
+        
 
 
     def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = False, report_filename: str = "report.html") -> psML:
