@@ -9,6 +9,8 @@ import json
 import pickle
 import os
 import logging
+import io
+import base64
 import lightgbm as lgb
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
@@ -255,6 +257,39 @@ class psML:
             return json.dumps(results)
 
         return results
+
+    def get_best_single_model(self) -> Optional[str]:
+        """
+        Identifies the best performing single model based on test scores.
+        Excludes ensembles.
+        
+        Returns:
+            The name of the best model (e.g., 'lightgbm', 'xgboost') or None if no models trained.
+        """
+        best_model = None
+        best_score = float('-inf') if self.config['dataset']['task_type'] == 'classification' else float('inf')
+        
+        supported_models = ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']
+        
+        for model_name in supported_models:
+            if f'final_model_{model_name}' in self.models:
+                score = self.models[f'final_model_{model_name}'].get('score')
+                if score is None:
+                    continue
+                    
+                is_better = False
+                if self.config['dataset']['task_type'] == 'classification':
+                    if score > best_score:
+                        is_better = True
+                else:
+                    if score < best_score:
+                        is_better = True
+                
+                if is_better:
+                    best_score = score
+                    best_model = model_name
+                    
+        return best_model
 
     def rmsle_safe(self, y_true: Union[np.ndarray, pd.Series], y_pred: Union[np.ndarray, pd.Series]) -> float:
         """
@@ -549,7 +584,7 @@ class psML:
                     elif model_name == 'random_forest':
                         mlflow.sklearn.log_model(clf_final, model_name)
                     elif model_name == 'pytorch':
-                        mlflow.pytorch.log_model(clf_final, model_name)
+                        mlflow.sklearn.log_model(clf_final, model_name)
                 except Exception as e:
                     logger.warning(f"Failed to log model to MLflow: {e}")
 
@@ -790,7 +825,7 @@ class psML:
             **kwargs: Additional arguments for the plot function.
             
         Returns:
-            shap_values: The calculated SHAP values.
+            shap_values: The calculated SHAP values which are stored in the model dictionary.
         """
         if f'final_model_{model_name}' not in self.models:
             logger.error(f"Model {model_name} has not been trained (final model not found).")
@@ -959,12 +994,15 @@ class psML:
             elif model_name == 'random_forest':
                  plot_kwargs['max_display'] = 2
 
+            # Create a new figure to avoid interference
+            plt.figure()
+
             if plot_type == 'summary':
-                shap.summary_plot(shap_values_to_plot, X_transformed, **plot_kwargs)
+                shap.summary_plot(shap_values_to_plot, X_transformed, show=False, **plot_kwargs)
             elif plot_type == 'bar':
-                shap.summary_plot(shap_values_to_plot, X_transformed, plot_type='bar', **plot_kwargs)
+                shap.summary_plot(shap_values_to_plot, X_transformed, plot_type='bar', show=False, **plot_kwargs)
             elif plot_type == 'heatmap':
-                shap.plots.heatmap(shap_values_to_plot, **plot_kwargs)
+                shap.plots.heatmap(shap_values_to_plot, show=False, **plot_kwargs)
             elif plot_type == 'waterfall':
                 # Waterfall plot usually needs a single instance
                 # If shap_values_to_plot is a matrix, take the first one? 
@@ -972,6 +1010,21 @@ class psML:
                 if hasattr(shap_values_to_plot, 'shape') and len(shap_values_to_plot.shape) > 1:
                      # This might fail if it's not an Explanation object
                      pass
-                shap.plots.waterfall(shap_values_to_plot[0], **plot_kwargs)
+                shap.plots.waterfall(shap_values_to_plot[0], show=False, **plot_kwargs)
             
-        return shap_values
+            # Save plot to base64
+            try:
+                buffer = io.BytesIO()
+                plt.savefig(buffer, format='png', bbox_inches='tight')
+                buffer.seek(0)
+                image_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                buffer.close()
+                plt.close()
+                
+                self.models[f'final_model_{model_name}']['shap_image'] = image_base64
+                logger.info(f"SHAP plot saved as base64 image for {model_name}")
+                logger.info(image_base64)
+            except Exception as e:
+                logger.warning(f"Failed to save SHAP plot as base64: {e}")
+            
+        self.models[f'final_model_{model_name}']['shap_values'] = shap_values

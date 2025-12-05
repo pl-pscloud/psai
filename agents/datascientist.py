@@ -34,6 +34,7 @@ from psai.agents.prompts import (
     get_ensamble_prompt,
     get_results_prompt,
     get_feature_engineering_prompt,
+    get_shap_prompt,
 )
 
 class DataScientist:
@@ -94,7 +95,7 @@ class DataScientist:
         self.eda_report = None
         self.ai_eda_summary = None
         self.ai_dataset_config = None
-        self.ai_preprocessor = None
+        self.ai_preprocessor_config = None
         self.ai_feature_engineering_code = None
         self.ai_feature_engineering = None
         self.ai_models_config = None
@@ -224,13 +225,16 @@ class DataScientist:
             
         print("EDA summary generated.")
 
-    def consult_dataset_config(self, execute_code: bool = True) -> str:
+    def consult_dataset_config(self, execute_code: bool = True, output_config: bool = False) -> str:
         """
         Generates a text summary of the EDA report to feed into the LLM.
         """
         print("Generating dataset config...")
+
+        optuna_metrics_info = f"""The optuna_metric is: '{self.optuna_metric}'""" if self.optuna_metric else ""
+        task_type_info = f"""The task_type is: '{self.task_type}'""" if self.task_type else ""
         
-        dataset_config_prompt = get_dataset_config_prompt(target=self.target)
+        dataset_config_prompt = get_dataset_config_prompt(target=self.target, optuna_metrics_info=optuna_metrics_info, task_type_info=task_type_info)
 
         # 4. Get Code from LLM
         print("Consulting LLM for dataset config...")
@@ -244,6 +248,10 @@ class DataScientist:
                 print("Executing generated config to create dataset config...")
                 self.ai_dataset_config = json.loads(dataset_config)
                 print("Dataset config executed.")
+                if output_config:
+                    print("-" * 40)
+                    print(dataset_config)
+                    print("-" * 40)
                 return self.ai_dataset_config
             else:
                 print("-" * 40)
@@ -256,7 +264,7 @@ class DataScientist:
             print(f"Error parsing or executing generated code: {e}")
             return None
 
-    def consult_feature_engineering(self, execute_code: bool = True, return_X_y: bool = False):
+    def consult_feature_engineering(self, execute_code: bool = True, return_X_y: bool = False, output_config: bool = False):
         """
         Analyzes the dataset and performs feature engineering using LLM-generated code.
         
@@ -290,6 +298,7 @@ class DataScientist:
                 
         
         try:
+            self.ai_feature_engineering_code = code_feature_engineering
             if execute_code:
                 # 5. Execute Code
                 print("Executing generated code...")
@@ -299,6 +308,11 @@ class DataScientist:
                 code = re.sub(r'^```\s*', '', code, flags=re.MULTILINE)
                 code = code.strip()
                 exec(code, local_scope)
+
+                if output_config:
+                    print("-" * 40)
+                    print(code_feature_engineering)
+                    print("-" * 40)
 
                 self.ai_feature_engineering = local_scope['feature_engineering']
                 self.X, self.y = self.ai_feature_engineering(self.df)
@@ -323,7 +337,7 @@ class DataScientist:
             print(f"Error executing generated code: {e}")
             raise
 
-    def consult_preprocessor_config(self, execute_code: bool = True):
+    def consult_preprocessor_config(self, execute_code: bool = True, output_config: bool = False):
         """
         Consults the LLM to generate a preprocessor configuration.
         
@@ -386,9 +400,13 @@ class DataScientist:
             
             if execute_code:
                 print("Executing generated config to create preprocessor...")
-                self.ai_preprocessor = json.loads(code_preprocessor)
+                self.ai_preprocessor_config = json.loads(code_preprocessor)
                 print("Preprocessor config executed.")
-                return self.ai_preprocessor
+                if output_config:
+                    print("-" * 40)
+                    print(code_preprocessor)
+                    print("-" * 40)
+                return self.ai_preprocessor_config
             else:
                 print("-" * 40)
                 print(code_preprocessor)
@@ -401,7 +419,7 @@ class DataScientist:
             # If parsing fails, return the raw string so the user can see what happened
             return None
 
-    def consult_models_config(self, execute_code: bool = True):
+    def consult_models_config(self, execute_code: bool = True, output_config: bool = False):
         """
         Consults the LLM to generate a models configuration.
         
@@ -422,6 +440,11 @@ class DataScientist:
 
         from psai.core.config import CONFIG as MODELS_CONFIG
 
+        optuna_metrics_info = f"""The optuna_metric is: '{self.optuna_metric}'""" if self.optuna_metric else ""
+        optuna_trials_info = f"""Suggested trails for optuna is: '{self.optuna_trials}'""" if self.optuna_trials else ""
+        optuna_timeout_info = f"""Suggested timeout for optuna is: '{self.optuna_timeout}'""" if self.optuna_timeout else ""
+        task_type_info = f"""The task_type is: '{self.task_type}'""" if self.task_type else ""
+
         optuna_n_jobs = 1        
         cpu_count = os.cpu_count()
         model_n_jobs = int(cpu_count / optuna_n_jobs)           # Number of threads per model (CPU cores / optuna jobs)
@@ -436,7 +459,12 @@ class DataScientist:
         print("CPU available cores: ", cpu_count)
         print("\n")
         
-        models_prompt = get_models_prompt(gpu_available=gpu_available, gpu_model=gpu_model, cpu_count=cpu_count, verbose=1)
+        print(optuna_metrics_info)
+        print(optuna_trials_info)
+        print(optuna_timeout_info)
+        print(task_type_info)
+        
+        models_prompt = get_models_prompt(gpu_available=gpu_available, gpu_model=gpu_model, cpu_count=cpu_count, verbose=1, optuna_metrics_info=optuna_metrics_info, optuna_trials_info=optuna_trials_info, optuna_timeout_info=optuna_timeout_info, task_type_info=task_type_info)
         
         # 4. Get Code from LLM
         print("Consulting LLM for Models Config...")
@@ -454,6 +482,10 @@ class DataScientist:
                 print("Executing generated config to create models...")
                 self.ai_models_config = json.loads(code_models)
                 print("Models config executed.")
+                if output_config:
+                    print("-" * 40)
+                    print(code_models)
+                    print("-" * 40)
                 return self.ai_models_config
             else:
                 print("-" * 40)
@@ -469,7 +501,7 @@ class DataScientist:
 
 
 
-    def consult_ensamble_config(self, execute_code: bool = True):
+    def consult_ensamble_config(self, execute_code: bool = True, output_config: bool = False):
         """
         Consults the LLM to generate an ensemble configuration (Stacking/Voting).
         
@@ -507,6 +539,10 @@ class DataScientist:
                 print("Executing generated config to create models...")
                 self.ai_ensamble_config = json.loads(ensamble_config)
                 print("Ensamble config executed.")
+                if output_config:
+                    print("-" * 40)
+                    print(ensamble_config)
+                    print("-" * 40)
                 return self.ai_ensamble_config
             else:
                 print("-" * 40)
@@ -545,8 +581,8 @@ class DataScientist:
         if self.target is None:
             raise ValueError(f"Target is None.")           
 
-        if self.ai_preprocessor is None:
-            raise ValueError(f"AI preprocessor is None.")
+        if self.ai_preprocessor_config is None:
+            raise ValueError(f"AI preprocessor config is None.")
 
         if self.ai_eda_summary is None:
             raise ValueError(f"AI EDA summary is None.")
@@ -576,11 +612,85 @@ class DataScientist:
         print(self.ai_results_analysis)
         print("-" * 40)
         
+    def consult_shap(self, model_name: str):
+        """
+        Consults the LLM to analyze the SHAP values of the trained models.
         
+        This method gathers the SHAP plot image from the psML instance and asks the LLM to provide
+        a comprehensive analysis and interpretation.
         
+        Returns:
+            The LLM's analysis of the SHAP plot for model.
+        """
+        # 1. Check if PSML is None
+        if self.psml is None:
+            raise ValueError(f"PSML is None.")
+        
+        if self.ai_models_config is None:
+            raise ValueError(f"AI models config is None.")
+
+        if self.df is None:
+            raise ValueError(f"Dataset is None.")           
+
+        if self.target is None:
+            raise ValueError(f"Target is None.")           
+
+        if self.ai_preprocessor_config is None:
+            raise ValueError(f"AI preprocessor config is None.")
+
+        if self.ai_eda_summary is None:
+            raise ValueError(f"AI EDA summary is None.")
+
+        if self.ai_ensamble_config is None:
+            raise ValueError(f"AI ensamble config is None.")
+
+        if self.ai_results_analysis is None:
+            raise ValueError(f"AI results analysis is None.")
+
+        shap_prompt = get_shap_prompt(model_name=model_name, task_type=self.task_type)
+        
+        # 4. Get Code from LLM
+        print("Consulting LLM for SHAP plot analysis...")
+        
+        messages = [HumanMessage(content=shap_prompt)]
+        
+        # Check if SHAP image exists and add it to the message
+        model_key = f'final_model_{model_name}'
+
+        if model_key not in self.psml.models:
+            raise ValueError(f"Model {model_key} not found in PSML.")
+        else:
+            print(f"Model {model_key} found in PSML.")
+        
+        if 'shap_image' not in self.psml.models[model_key]:
+            print(f"Running explain_model for model {model_key}.")
+            self.psml.explain_model(model_name=model_name)
+            print(f"SHAP image generated for model {model_key}.")
+        else:
+            print(f"SHAP image already exists for model {model_key}.")
+
+        shap_image_base64 = self.psml.models[model_key]['shap_image']
+
+        if shap_image_base64:
+            messages.append(HumanMessage(content=[
+                {"type": "image", "base64": shap_image_base64, "mime_type": "image/png"}
+            ]))
+        else:
+            raise ValueError(f"SHAP image not found for model {model_key}")
+
+        response = self.agent.invoke({"messages": messages}, config=self.config)
+        ai_shap_analysis =  self._final_message_text(response)
+    
+        self.ai_shap_analysis = ai_shap_analysis
+    
+        print("-" * 40)
+        print("Generated SHAP Analysis:")
+        print("-" * 40)
+        print(ai_shap_analysis)
+        print("-" * 40)  
 
 
-    def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = False, report_filename: str = "report.html") -> psML:
+    def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = True, report_filename: str = "report.html", output_config: bool = False):
         """
         Executes the complete end-to-end machine learning process.
         
@@ -608,39 +718,39 @@ class DataScientist:
         if self.target not in self.df.columns:
             raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
-        # 2. EDA
+        # 1. EDA
         print("\n" + "="*40)
         print(" STEP 1: Exploratory Data Analysis (EDA) ")
         print("="*40 + "\n")
         self.consult_eda()
 
-        # 2. Dataset Config
+        # 2. Feature Engineering
         print("\n" + "="*40)
-        print(" STEP 2: Dataset Config ")
-        print("="*40 + "\n")
-        self.consult_dataset_config(execute_code=execute_code)
-
-        # 3. Feature Engineering
-        print("\n" + "="*40)
-        print(" STEP 3: Feature Engineering ")
+        print(" STEP 2: Feature Engineering ")
         print("="*40 + "\n")
         # consult_feature_engineering returns X, y
-        self.X, self.y = self.consult_feature_engineering(execute_code=execute_code)
+        self.consult_feature_engineering(output_config=output_config)
+
+        # 3. Dataset Config
+        print("\n" + "="*40)
+        print(" STEP 3: Dataset Config ")
+        print("="*40 + "\n")
+        self.consult_dataset_config(output_config=output_config)
 
         # 4. Preprocessing
         print("\n" + "="*40)
         print(" STEP 4: Preprocessing Configuration ")
         print("="*40 + "\n")
-        self.ai_preprocessor = self.consult_preprocessor(execute_code=execute_code)
+        self.consult_preprocessor_config(output_config=output_config)
 
         # 5. Model Selection
         print("\n" + "="*40)
         print(" STEP 5: Model Selection & Configuration ")
         print("="*40 + "\n")
-        self.ai_models_config = self.consult_models(execute_code=execute_code)
+        self.consult_models_config(output_config=output_config)
        
 
-        # 7. Configuration Merging
+        # 6. Configuration Merging
         print("\n" + "="*40)
         print(" STEP 6: Models to run ... ")
         print("="*40 + "\n")
@@ -649,41 +759,50 @@ class DataScientist:
             if model_config_details.get("enabled", False) is True:
                 print(f"Enabling model: {model_name}")
 
-        # 8. Execution
+        # 7. Execution
         print("\n" + "="*40)
         print(" STEP 7: Model Training & Optimization ")
         print("="*40 + "\n")
         self.run_analysis()
         
-        # 9. Results
+        # 8. Results
         print("\n" + "="*40)
         print(" STEP 8: Results for models ")
         print("="*40 + "\n")
         self.consult_results()
 
-        # 6. Ensamble Configuration
+        # 9. Ensamble Configuration
         print("\n" + "="*40)
         print(" STEP 9: Ensamble Configuration ")
         print("="*40 + "\n")
-        self.consult_ensamble(execute_code=execute_code)
+        self.consult_ensamble_config(output_config=output_config)
 
-        # 8. Execution
+        # 10. Execution
         print("\n" + "="*40)
         print(" STEP 10: Ensamble Training & Optimization")
         print("="*40 + "\n")
         self.run_analysis_ensamble()
 
-        # 9. Results
+        # 11. Results
         print("\n" + "="*40)
         print(" STEP 11: Results for models + ensamble")
         print("="*40 + "\n")
         self.consult_results()
 
-        # 10. Save Report
+        model_name = self.psml.get_best_single_model()
+
+        if model_name:
+            # 12. SHAP Analysis
+            print("\n" + "="*40)
+            print(f" STEP 12: SHAP Analysis for best model: {model_name}")
+            print("="*40 + "\n")
+            self.consult_shap(model_name)
+
+        # 13. Save Report
         ddate = time.strftime("%Y%m%d%H%M%S")
         filename = f"report-{self.target}-{ddate}.html"
         print("\n" + "="*40)
-        print(f" STEP 10: Save Report (filename: {filename}) ")
+        print(f" STEP 13: Save Report (filename: {filename}) ")
         print("="*40 + "\n")
         self.save_report(filename=filename)
         
@@ -696,8 +815,8 @@ class DataScientist:
         if isinstance(self.ai_dataset_config, dict):
             self.run_config['dataset'] = self.ai_dataset_config
         
-        if isinstance(self.ai_preprocessor, dict):
-            self.run_config['preprocessor'] = self.ai_preprocessor
+        if isinstance(self.ai_preprocessor_config, dict):
+            self.run_config['preprocessor'] = self.ai_preprocessor_config
         
         if isinstance(self.ai_models_config, dict):
             self.run_config['models'] = self.ai_models_config
@@ -795,9 +914,9 @@ class DataScientist:
         # 4. Preprocessing Section
         html_content.append("<div class='section'>")
         html_content.append("<h2>4. Preprocessing Configuration</h2>")
-        if self.ai_preprocessor:
+        if self.ai_preprocessor_config:
             html_content.append("<h3>Generated Configuration</h3>")
-            config_str = json.dumps(self.ai_preprocessor, indent=4) if isinstance(self.ai_preprocessor, dict) else str(self.ai_preprocessor)
+            config_str = json.dumps(self.ai_preprocessor_config, indent=4) if isinstance(self.ai_preprocessor_config, dict) else str(self.ai_preprocessor_config)
             html_content.append(f"<pre><code>{config_str}</code></pre>")
         else:
              html_content.append("<p>No preprocessor configuration generated.</p>")
@@ -841,8 +960,15 @@ class DataScientist:
                      html_content.append(f"<pre>{json.dumps(scores, indent=4)}</pre>")
 
         if self.ai_results_analysis:
-            html_content.append("<h3>AI Analysis</h3>")
+            html_content.append("<h2>AI Analysis</h2>")
             html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_results_analysis))}</div>")
+
+        if self.ai_shap_analysis:
+            best_model = self.psml.get_best_single_model()
+            image = self.psml.models[f"final_model_{best_model}"]["shap_image"]
+            html_content.append(f"<h2>SHAP Analysis for best model {best_model}</h2>")
+            html_content.append(f"<img src='data:image/png;base64,{image}' alt='SHAP Analysis' />")
+            html_content.append(f"<div class='text-content'>{markdown.markdown(html.escape(self.ai_shap_analysis))}</div>")
         
         html_content.append("</div>")
         

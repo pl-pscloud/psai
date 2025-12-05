@@ -147,14 +147,14 @@ Structure your answer using the following sections and headings:
 - Summarize data quality issues:
   - Missing values: identify features with substantial missingness; quantify where possible and suggest imputation strategies tailored to feature type and missingness pattern (mean/median, mode, indicator flags, model-based imputation, or dropping).
   - Duplicates: report whether duplicates are present and whether they should be removed.
-  - Outliers and skewness: identify features flagged as skewed or with extreme values and propose handling strategies (e.g., winsorization, log/Box–Cox transforms, robust scalers).
+  - Outliers and skewness: identify features flagged as skewed or with extreme values and propose handling strategies (e.g., winsorization, log/Box-Cox transforms, robust scalers).
   - High-cardinality or sparse features: identify them and discuss implications (overfitting, memory, encoding challenges) and possible treatments.
 - Clearly link each recommended treatment to specific observations in the summary.
 
 ## 3. Feature Understanding and Relationships
 - Describe key properties of the target (distribution, imbalance, range) and explain the implications for modeling and evaluation.
 - Highlight the most important relationships revealed by the EDA:
-  - Strong correlations (numerical–numerical, categorical–target, etc.).
+  - Strong correlations (numerical-numerical, categorical-target, etc.).
   - Multicollinearity among features and potential redundancy.
   - Any signals of data leakage or suspiciously strong relationships.
 - Comment on which features appear most promising and which may be noisy or redundant.
@@ -169,7 +169,7 @@ Structure your answer using the following sections and headings:
 
 ## 5. Preprocessing Pipeline Design
 - Propose a preprocessing pipeline that could be implemented in frameworks such as scikit-learn, clearly distinguishing:
-  - Numerical features: scaling/normalization choices (standardization, robust scaling, min–max, none) and why they are appropriate.
+  - Numerical features: scaling/normalization choices (standardization, robust scaling, min-max, none) and why they are appropriate.
   - Categorical features: encoding strategies (one-hot, target encoding, ordinal encoding, hashing) and how they relate to cardinality, sparsity, and model choice.
   - Text, date/time, or other special feature types, if they are present in the summary.
 - Explicitly explain how each preprocessing choice addresses specific data characteristics from the EDA and how it is expected to help models train more effectively or generalize better.
@@ -204,13 +204,13 @@ Aim for a thorough but concise report. Prefer clear structure and justification 
 
 """
 
-def get_dataset_config_prompt(target):
+def get_dataset_config_prompt(target, optuna_metrics_info, task_type_info):
     return f"""
 Your task is to suggest a dataset config for the dataset.
 
 The target column is: '{target}'
-
-Here is an analysis of the dataset:
+{optuna_metrics_info}
+{task_type_info}
 
 DATASET_CONFIG = {{
     'train_path': 'datasets/train_multicalss.csv',  # Path to the training CSV file
@@ -294,6 +294,7 @@ Follow these requirements carefully:
          - sums (e.g., column_A + column_B)
          - domain specific features if possible and have sense
        - Avoid generating an explosion of interaction features; focus on a small number of interpretable, high-value features.
+       - Do not make log transformations on skewed numeric columns, it will be done later in preprocessor.
      - Categorical-like columns (object, category):
        - You may create simple aggregate features like:
          - frequency / count encoding (e.g., map category -> frequency in df), if useful.
@@ -434,13 +435,18 @@ Based on this analysis, create the best preprocessor for the dataset using the v
 Write the code now.
 """
 
-def get_models_prompt(gpu_available, gpu_model, cpu_count, verbose):
+def get_models_prompt(gpu_available, gpu_model, cpu_count, verbose, optuna_metrics_info, optuna_trials_info, optuna_timeout_info, task_type_info):
     return f"""
 Your task is to enable/disable models and tune parameters for machine learning optimization with optuna for analyzed dataset.
 
 GPU available: {gpu_available}
 GPU model: {gpu_model}
 CPU available cores: {cpu_count}
+
+{optuna_metrics_info}
+{optuna_trials_info}
+{optuna_timeout_info}
+{task_type_info}
 
 The model_config default is (json format):
 ===
@@ -781,4 +787,32 @@ Now, based on scores, produce the full analysis.
 
 ---
 
+"""
+
+def get_shap_prompt(model_name: str, task_type: str):
+    return f"""
+Your task is to analyze the SHAP (SHapley Additive exPlanations) summary plot for the model '{model_name}'.
+
+Context:
+- Model Name: {model_name}
+- Task Type: {task_type}
+
+The image provided is a SHAP summary plot. 
+
+Your Goal:
+1.  **Identify Key Features**: List the top 3-5 most important features driving the model's predictions.
+2.  **Explain Relationships**: For the top features, explain how they influence the prediction based on the plot (e.g., "High values of Feature A lead to higher predicted probability/value").
+3.  **Detect Patterns**: Note any interesting patterns, such as non-linear effects or interactions if visible (e.g., "Feature B has a positive impact only when its value is very high").
+4.  **Provide Insights**: Synthesize these observations into actionable business or technical insights.
+
+Structure your response as follows:
+## SHAP Analysis for {model_name}
+### Top Features
+(List and explanation)
+### Detailed Insights
+(Patterns and relationships)
+### Conclusion
+(Summary of what drives the model)
+
+Be concise and focus on the visual evidence from the plot.
 """
