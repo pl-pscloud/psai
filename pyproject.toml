@@ -39,7 +39,8 @@ dependencies = [
     "xhtml2pdf",
     "markdown",
     "pandera",
-    "ipython"
+    "ipython",
+    "shap"
 ]
 
 [project.optional-dependencies]

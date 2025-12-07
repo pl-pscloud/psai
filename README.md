@@ -14,6 +14,7 @@
 *   **⚙️ Configuration-Driven**: Entire pipeline behavior controlled via a central `config.py`, ensuring reproducibility and ease of experimentation.
 *   **🔥 Deep Learning Ready**: Includes implementations of modern tabular DL architectures like **FT-Transformer** and ResNet-style blocks (GELU, Residual Blocks).
 *   **📈 MLflow Integration**: Seamless experiment tracking, model versioning, and artifact logging using MLflow.
+*   **🔮 SHAP Explainability**: Built-in support for model explainability using SHAP (SHapley Additive exPlanations), compatible with both tree-based and deep learning models.
 *   **📊 Automated Reporting**: Generate professional, publication-ready Exploratory Data Analysis reports (HTML) with deep insights into distributions, correlations, and target relationships.
 
 ---
@@ -23,13 +24,22 @@
 ```text
 .
 ├── psai/
-│   ├── __init__.py
-│   ├── config.py           # Central configuration file
-│   ├── datascientist.py    # AI Agent for automated workflow
-│   ├── datasets.py         # Automated EDA & Data Reporting
-│   ├── psml.py             # Core Pipeline: Training, Optimization, Ensembling
-│   ├── pstorch.py          # PyTorch Models (MLP, FT-Transformer)
-│   └── scalersencoders.py  # Preprocessing Logic (Imputers, Scalers, Encoders)
+│   ├── agents/
+│   │   ├── datascientist.py    # AI Agent for automated workflow
+│   │   └── prompts.py          # LLM Prompts
+│   ├── core/
+│   │   ├── config.py           # Central configuration file
+│   │   ├── datasets.py         # Automated EDA & Data Reporting
+│   │   ├── psml.py             # Core Pipeline: Training, Optimization, Ensembling
+│   │   ├── pstorch.py          # PyTorch Models (MLP, FT-Transformer)
+│   │   └── scalersencoders.py  # Preprocessing Logic (Imputers, Scalers, Encoders)
+│   ├── models/                 # Model Adapters
+│   │   ├── catboost.py
+│   │   ├── lightgbm.py
+│   │   ├── pytorch.py
+│   │   ├── sklearn.py
+│   │   └── xgboost.py
+│   └── __init__.py
 └── README.md               # Documentation
 ```
 
@@ -40,7 +50,7 @@
 Ensure you have the required dependencies installed. It is recommended to use a virtual environment.
 
 ```bash
-pip install pandas numpy scikit-learn lightgbm xgboost catboost torch mflow optuna-integration[mlflow] optuna seaborn matplotlib langchain-google-genai langchain-openai langchain-anthropic langchain-ollama langgraph python-dotenv
+pip install pandas numpy scikit-learn lightgbm xgboost catboost torch mlflow optuna-integration[mlflow] optuna seaborn matplotlib langchain-google-genai langchain-openai langchain-anthropic langchain-ollama langgraph python-dotenv shap
 ```
 
 *Note: You will need a Google Cloud API Key in your `.env` file (`GOOGLE_API_KEY`) to use the AI Agent.*
@@ -53,8 +63,9 @@ The `DataScientist` agent leverages Large Language Models (LLMs) to automate com
 
 ### Capabilities
 *   **Automated EDA Analysis**: Generates a textual summary of the EDA report and provides a structured analysis (Data Quality, Feature Engineering, Preprocessing, Model Selection).
-*   **Intelligent Feature Engineering**: Writes and executes Python code to create new features based on data insights.
+*   **Intelligent Feature Engineering**: Writes and executes Python code to create new features based on data insights, automatically integrating them into the pipeline.
 *   **Dynamic Configuration**: Suggests optimal `PREPROCESSOR_CONFIG` and `MODELS_CONFIG` based on the dataset characteristics.
+*   **SHAP Analysis**: Can analyze SHAP plots to provide human-readable explanations of model behavior and feature importance.
 *   **End-to-End Automation**: Orchestrates the entire pipeline from EDA to Model Ensembling with a single method call (`end_to_end_ml_process`).
 *   **Comprehensive Reporting**: Generates a detailed HTML report (`save_report`) aggregating EDA, feature engineering logic, model configurations, and final performance metrics.
 
@@ -262,6 +273,19 @@ ps.save_model('models/my_pipeline.pkl')
 loaded_pipeline = psML.load_model('models/my_pipeline.pkl')
 # Access specific models for prediction if needed, or use the ensemble
 predictions = loaded_pipeline.models['ensemble_stacking_cv']['model'].predict(X_test)
+```
+
+### Step 5: Explainability (SHAP)
+
+Understand your model's decisions using SHAP values.
+
+```python
+# Generate a summary plot for the final LightGBM model
+# This auto-detects tree-based vs kernel-based explainers
+ps.explain_model(model_name='lightgbm', plot_type='summary')
+
+# Visualize feature importance as a bar chart
+ps.explain_model(model_name='lightgbm', plot_type='bar')
 ```
 
 ---
