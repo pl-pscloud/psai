@@ -85,20 +85,41 @@ cat_scaler_config = {
     'log': FunctionTransformer(np.log1p, validate=True),
 }
 
-def create_preprocessor(config, X):
+def create_preprocessor(config, X, fe_transformer=None):
     """
     Creates a Scikit-Learn ColumnTransformer for data preprocessing.
     
     Args:
         config: Configuration dictionary specifying imputers, scalers, and encoders.
         X: The training data (DataFrame) used to categorize features.
+        fe_transformer: Optional transformer for feature engineering.
         
     Returns:
         A tuple containing:
         - preprocessor: The constructed ColumnTransformer (or Pipeline if dim reduction is used).
         - columns: A dictionary of feature categories (numerical, categorical, etc.).
     """
-    columns = categorize_features(X)
+    # 1. If FE present, apply it to X temporarily to get new schema
+    if fe_transformer:
+        # We need to trust the transformer works on a copy
+        try:
+            X_temp = X.head(100).copy() # Use a sample for speed if dataset is huge, but full is safer for cardinality
+            # Ideally fit on full, transform on sample? Or just fit_transform full?
+            # Let's use full X for robustness of column detection
+            # Note: This 'fit' is just for schema detection. The real fit happens inside the pipeline later.
+            # But wait, if we fit here, we might double-fit. 
+            # Ideally we Clone the transformer for this check?
+            from sklearn.base import clone
+            fe_check = clone(fe_transformer)
+            X_transformed = fe_check.fit_transform(X)
+            columns = categorize_features(X_transformed)
+        except Exception as e:
+            print(f"Error during feature engineering schema check: {e}")
+            # Fallback to original columns if FE fails (shouldn't happen if code is robust)
+            columns = categorize_features(X)
+    else:
+        columns = categorize_features(X)
+
     # Create numerical transformer with hyperparameterized SimpleImputer
     numerical_transformer = Pipeline(steps=[
         ('imputer', numerical_imputer_config[config['numerical']['imputer']]),
@@ -155,6 +176,15 @@ def create_preprocessor(config, X):
                  ('preprocessor', preprocessor),
                  ('dim_reduction', dim_transformer)
              ])
+    
+    # Prepend Feature Engineering if present
+    if fe_transformer:
+        # We use the original instance passed in, which will be fitted when the pipeline is fitted
+        final_pipeline = Pipeline(steps=[
+            ('feature_engineering', fe_transformer),
+            ('preprocessor', preprocessor)
+        ])
+        return final_pipeline, columns
 
     return preprocessor, columns
 

@@ -302,7 +302,17 @@ class DataScientist:
             if execute_code:
                 # 5. Execute Code
                 print("Executing generated code...")
-                local_scope = {'pd': pd, 'np': np, 'target': self.target} # Pass target to local scope
+                
+                # Import required base classes for the exec scope
+                from sklearn.base import BaseEstimator, TransformerMixin
+                
+                local_scope = {
+                    'pd': pd, 
+                    'np': np, 
+                    'BaseEstimator': BaseEstimator, 
+                    'TransformerMixin': TransformerMixin
+                }
+                
                 # Clean code (remove markdown blocks if the LLM ignored instructions)
                 code = re.sub(r'^```python\s*', '', code_feature_engineering, flags=re.MULTILINE)
                 code = re.sub(r'^```\s*', '', code, flags=re.MULTILINE)
@@ -314,10 +324,18 @@ class DataScientist:
                     print(code_feature_engineering)
                     print("-" * 40)
 
-                self.ai_feature_engineering = local_scope['feature_engineering']
-                self.X, self.y = self.ai_feature_engineering(self.df)
+                if 'FeatureEngTransformer' not in local_scope:
+                    raise ValueError("The generated code did not define a 'FeatureEngTransformer' class.")
+
+                # Instantiate the transformer
+                TransformerClass = local_scope['FeatureEngTransformer']
+                self.ai_feature_engineering = TransformerClass()
                 
-                print(f"Feature Engineering complete. X shape: {self.X.shape}, y shape: {self.y.shape}")
+                # Split X and y normally
+                self.y = self.df[self.target]
+                self.X = self.df.drop(columns=[self.target])
+                
+                print(f"Feature Engineering Transformer created. X shape: {self.X.shape}, y shape: {self.y.shape}")
                 
                 if return_X_y:
                     return self.X, self.y
@@ -329,9 +347,6 @@ class DataScientist:
                 print(code_feature_engineering)
                 print("-" * 40)
                 return None
-            
-            if 'feature_engineering' not in local_scope:
-                raise ValueError("The generated code did not define a 'feature_engineering' function.")
             
         except Exception as e:
             print(f"Error executing generated code: {e}")
@@ -825,10 +840,22 @@ class DataScientist:
             self.run_config['stacking'] = self.ai_ensamble_config['stacking']
             self.run_config['voting'] = self.ai_ensamble_config['voting']
 
+        if self.run_config['dataset'].get('task_type') is None:
+             if self.task_type:
+                 self.run_config['dataset']['task_type'] = self.task_type
+             else:
+                 # Default logic or error?
+                 pass
+
         if self.psml == None:
             self.psml = psML(self.run_config, X=self.X, y=self.y, experiment_name=self.experiment_name)
+            # Pass the FE transformer if it exists
+            if self.ai_feature_engineering:
+                self.psml.feature_engineering_transformer = self.ai_feature_engineering
         else:
             self.psml.config = self.run_config
+            if self.ai_feature_engineering:
+                self.psml.feature_engineering_transformer = self.ai_feature_engineering
 
     def save_report(self, filename: str = "report.html"):
         """

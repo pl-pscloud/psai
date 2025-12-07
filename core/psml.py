@@ -6,7 +6,11 @@ import seaborn as sns
 import pandas as pd
 import numpy as np
 import json
-import pickle
+try:
+    import cloudpickle as pickle
+except ImportError:
+    import pickle
+    logger.warning("Cloudpickle not found, falling back to pickle. Dynamic objects may fail to save.")
 import os
 import logging
 import io
@@ -59,7 +63,7 @@ class psML:
     """
     Machine Learning Pipeline for training, evaluation, and prediction
     """
-    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[Union[pd.Series, pd.DataFrame]] = None, experiment_name: Optional[str] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, X: Optional[pd.DataFrame] = None, y: Optional[Union[pd.Series, pd.DataFrame]] = None, experiment_name: Optional[str] = None, fe_transformer: Optional[Pipeline] = None):
         self.models: Dict[str, Any] = {}
         
         if config is None:
@@ -106,6 +110,7 @@ class psML:
 
         self.columns = {}
         self.preprocessor = None
+        self.feature_engineering_transformer = fe_transformer
 
         # Determine if multiclass
         self.is_multiclass = False
@@ -219,7 +224,7 @@ class psML:
         The preprocessor handles missing values, scaling, encoding, and other transformations.
         It also identifies column types (numerical, categorical, etc.) and stores them.
         """
-        preprocessor, columns = create_preprocessor(self.config['preprocessor'], self.X_train)
+        preprocessor, columns = create_preprocessor(self.config['preprocessor'], self.X_train, self.feature_engineering_transformer)
         self.preprocessor = preprocessor
         self.columns = columns
 
@@ -575,16 +580,22 @@ class psML:
             
                 # Log model artifact
                 try:
-                    if model_name == 'lightgbm':
-                        mlflow.lightgbm.log_model(clf_final, model_name)
-                    elif model_name == 'xgboost':
-                        mlflow.xgboost.log_model(clf_final, model_name)
-                    elif model_name == 'catboost':
-                        mlflow.catboost.log_model(clf_final, model_name)
-                    elif model_name == 'random_forest':
-                        mlflow.sklearn.log_model(clf_final, model_name)
-                    elif model_name == 'pytorch':
-                        mlflow.sklearn.log_model(clf_final, model_name)
+                    # Create input example and signature from RAW data
+                    input_example = self.X_test.head(5)
+                    
+                    if self.config['dataset']['task_type'] == 'classification':
+                        if self.is_multiclass:
+                            prediction = final_pipeline.predict_proba(input_example)
+                        else:
+                            prediction = final_pipeline.predict_proba(input_example)[:, 1]
+                    else:
+                        prediction = final_pipeline.predict(input_example)
+
+                    signature = mlflow.models.infer_signature(input_example, prediction)
+
+                    # Log the full pipeline using sklearn flavor
+                    mlflow.sklearn.log_model(final_pipeline, name=model_name, signature=signature, input_example=input_example)
+
                 except Exception as e:
                     logger.warning(f"Failed to log model to MLflow: {e}")
 
@@ -725,7 +736,20 @@ class psML:
                 mlflow.log_metric(self.config['models'][ref_model]['optuna_metric'], score)
                 
                 try:
-                    mlflow.sklearn.log_model(st, f"stacking_{suffix}")
+                    # Create input example and signature (StackingClassifier takes raw input)
+                    input_example = self.X_test.head(5)
+                    
+                    if self.config['dataset']['task_type'] == 'classification':
+                        if self.is_multiclass:
+                            prediction = st.predict_proba(input_example)
+                        else:
+                            prediction = st.predict_proba(input_example)[:, 1]
+                    else:
+                        prediction = st.predict(input_example)
+
+                    signature = mlflow.models.infer_signature(input_example, prediction)
+
+                    mlflow.sklearn.log_model(st, name=f"stacking_{suffix}", signature=signature, input_example=input_example)
                 except Exception as e:
                     logger.warning(f"Failed to log stacking model to MLflow: {e}")
 
@@ -787,6 +811,13 @@ class psML:
             # We also need to populate named_estimators_
             vt.named_estimators_ = dict(base_estimators)
             
+            # Manually initialize LabelEncoder for classification if prefit
+            if self.config['dataset']['task_type'] == 'classification':
+                from sklearn.preprocessing import LabelEncoder
+                vt.le_ = LabelEncoder()
+                vt.le_.fit(self.y_train.iloc[:, 0] if isinstance(self.y_train, pd.DataFrame) else self.y_train)
+                vt.classes_ = vt.le_.classes_
+            
         if self.config['dataset']['task_type'] == 'classification':
             if self.is_multiclass:
                 y_pred = vt.predict_proba(self.X_test)
@@ -807,7 +838,20 @@ class psML:
                 mlflow.log_metric(self.config['models'][ref_model]['optuna_metric'], score)
                 
                 try:
-                    mlflow.sklearn.log_model(vt, f"voting_{suffix}")
+                    # Create input example and signature (VotingClassifier takes raw input)
+                    input_example = self.X_test.head(5)
+                    
+                    if self.config['dataset']['task_type'] == 'classification':
+                        if self.is_multiclass:
+                            prediction = vt.predict_proba(input_example)
+                        else:
+                            prediction = vt.predict_proba(input_example)[:, 1]
+                    else:
+                        prediction = vt.predict(input_example)
+
+                    signature = mlflow.models.infer_signature(input_example, prediction)
+
+                    mlflow.sklearn.log_model(vt, name=f"voting_{suffix}", signature=signature, input_example=input_example)
                 except Exception as e:
                     logger.warning(f"Failed to log voting model to MLflow: {e}")
 

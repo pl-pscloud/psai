@@ -239,120 +239,77 @@ Write the code now.
 
 def get_feature_engineering_prompt(target: str):
     return f"""
-Your task is to write a Python function `feature_engineering(df)` that takes a pandas DataFrame `df` as input and returns `X` (features DataFrame) and `y` (target Series/DataFrame).
+Your task is to write a Python class `FeatureEngTransformer(BaseEstimator, TransformerMixin)` that performs feature engineering on a pandas DataFrame.
 
 You will be given:
 - A description of a tabular dataset, including:
   - Column names and data types
-  - Summary statistics (e.g., df.describe(include="all"))
-  - Sample rows (head of the dataframe)
-  - Any additional profiling information (missingness, unique counts, etc.)
+  - Summary statistics
+  - Sample rows
 - The name of the target column: {target}
 
-Your task:
-Write a robust Python function `feature_engineering(df)` that:
-- Accepts a single argument `df` (a pandas DataFrame).
-- Returns a tuple `(X, y)` where:
-  - `X` is a pandas DataFrame containing the engineered features (without the target).
-  - `y` is the target as a pandas Series (or DataFrame, if appropriate).
+Your task is to write a robust Python class `FeatureEngTransformer` that fits into a scikit-learn pipeline.
 
 Follow these requirements carefully:
 
 1. General structure
-   - The function MUST be named `feature_engineering`.
-   - It MUST accept exactly one argument: `df`.
-   - It MUST return a tuple `(X, y)`.
-   - Assume `pandas` and `numpy` are already imported as:
-       import pandas as pd
-       import numpy as np
-   - Do not import any other libraries.
-   - Do not print anything or log anything; just define the function.
+   - Define a class named `FeatureEngTransformer` inheriting from `BaseEstimator` and `TransformerMixin`.
+   - Implement `__init__`, `fit`, and `transform` methods.
+   - The input `X` to `fit` and `transform` will be a pandas DataFrame.
+   - The output of `transform` MUST be a pandas DataFrame with the new engineered features included (and potentially original ones kept).
+   - Assume `pandas` as `pd`, `numpy` as `np`, and `sklearn.base` classes are available.
+   - Do not import other libraries inside the class if not standard.
 
-2. Feature engineering (core of the task)
-   - Use the dataset description, dtypes, and summary statistics provided to decide which new features are likely useful.
-   - Create only *new* features. Do NOT perform:
-     - Imputation
-     - Scaling / normalization
-     - One-hot encoding or other categorical encodings (except for the target)
-   - Examples of allowed feature engineering:
-     - Datetime columns:
-       - If you detect datetime-like columns (actual datetime dtype or string columns clearly representing dates/times), extract components such as:
-         - year, month, day, dayofweek, hour, etc.
-       - Consider creating simple time-based features such as:
-         - is_weekend, is_month_start, is_month_end.
-     - Text columns:
-       - For free-text/string columns, create simple aggregate features such as:
-         - text length (number of characters)
-         - word count (number of whitespace-separated tokens)
-         - maybe basic boolean flags if something is clearly meaningful from the sample (e.g., presence of specific keywords), but keep it simple and generic.
-     - Numeric columns:
-       - Consider transformations when appropriate based on stats:
-         - simple binning (e.g., qcut/cut) into a small number of bins for variables where that might help.
-       - Consider advanced / domain specific interaction features that are intuitively meaningful from the column names and stats, such as:
-         - ratios (e.g., column_A / (column_B + small_constant))
-         - differences (e.g., column_A - column_B)
-         - sums (e.g., column_A + column_B)
-         - domain specific features if possible and have sense
-       - Avoid generating an explosion of interaction features; focus on a small number of interpretable, high-value features.
-       - Do not make log transformations on skewed numeric columns, it will be done later in preprocessor.
-     - Categorical-like columns (object, category):
-       - You may create simple aggregate features like:
-         - frequency / count encoding (e.g., map category -> frequency in df), if useful.
-       - Do not perform one-hot encoding here; that will be handled later.
-   - Avoid target leakage:
-     - Do not create features that use information that would not be available at prediction time.
-     - Do not aggregate across the whole dataset conditional on the target.
+2. Feature engineering logic
+   - In `fit(self, X, y=None)`:
+     - Learn any global statistics if necessary (e.g. target encoding mappings, frequency counts) from the training data `X` (and `y` if provided).
+     - Store these as attributes (e.g., `self.freq_map_`).
+     - Return `self`.
+   - In `transform(self, X)`:
+     - Apply the transformations using the learned stats.
+     - Create new features based on domain knowledge or data types (Dates, Text, Ratios).
+     - **Crucial**: Work on a copy (`X = X.copy()`) to avoid SettingWithCopy warnings or side effects.
+     - Drop any columns you explicitly want to remove (e.g. high cardinality ID columns), but generally keep the original features that are useful.
+     - Return the transformed DataFrame.
 
-3. Data cleaning behavior
-   - Drop exact duplicate rows if any exist: use something like df.drop_duplicates().
-   - Do NOT perform:
-     - Missing value imputation
-     - Outlier removal
-     - Scaling / normalization
-     - Train/test splitting (that will be done later)
-   - If you need to modify df, work on a copy (e.g., df = df.copy()) to avoid mutating the original.
+3. Target handling
+   - This transformer deals with **features `X` only**.
+   - Do NOT process the target variable in `transform`.
+   - If you need target statistics for encoding (Target Encoding), compute them in `fit` using `y` and apply the mapping in `transform`.
+   - If `y` is None in `fit`, raise a warning or skip supervised features.
 
-4. Target handling
-   - The target column name is: {target}
-   - Separate the target column from the features:
-     - y = df[target_column]
-     - X = df.drop(columns=[target_column])
-   - Target encoding:
-     - If the target is numeric and appears to be regression-like (continuous), leave it as is.
-     - If the target is binary or multiclass categorical:
-       - Apply label encoding to the target only.
-       - Do NOT use scikit-learn; use pandas / numpy only (for example, pd.factorize or astype("category").cat.codes).
-       - Ensure the encoded target remains aligned with X.
-       - Optionally include a short code comment documenting the mapping from original labels to encoded integers, if easily obtainable.
+4. Features to generate (Guidelines)
+   - **Datetime**: Extract year, month, day, hour, dayofweek, is_weekend.
+   - **Text**: Length, word count.
+   - **Numeric**: Binning, ratios, sums, differences if meaningful.
+   - **Categorical**: Frequency encoding (computed in fit!).
+   - **Do NOT** perform One-Hot Encoding or Scaling here (this is done in the next pipeline steps).
 
-5. Error handling and robustness
-   - Handle potential issues gracefully:
-     - If the target column {target} is missing, raise a clear, informative ValueError with a helpful message.
-     - If feature engineering steps rely on a column that is absent (e.g., due to prior filtering), check for existence before using it.
-     - When parsing datetime from object columns, use safe conversions (e.g., errors="coerce") and only proceed with datetime feature extraction if a substantial portion of values are successfully parsed.
-     - When computing ratios or log transforms, guard against division by zero and invalid values (e.g., use small epsilons, only log-transform positive values).
-   - Do not let the function crash on common data issues if they can be anticipated and handled cleanly.
+5. Error handling
+   - Handle missing columns gracefully in `transform` (e.g., if a column dropped upstream).
+   - Use `errors='coerce'` for datetime conversion.
 
 6. Output format
-   - Output ONLY the Python code for the function (and any minimal helper functions you define inside the same file, if absolutely necessary).
-   - Do NOT wrap the code in any markdown formatting such as ```python ... ``` or ```...```.
-   - It is acceptable (and encouraged) to include:
-     - A concise docstring for `feature_engineering`.
-     - Inline comments explaining non-obvious logic.
-   - Do NOT output any explanatory text outside of Python code.
+   - Output ONLY the Python code for the class (and imports).
+   - Do NOT wrap in markdown blocks.
+   - Valid Python code only.
 
-7. Style and clarity
-   - Follow standard Python style (PEP 8) as much as practical.
-   - Keep the function readable and logically structured.
-   - Prefer explicit, clear logic over clever but obscure one-liners.
-   - Keep the number of engineered features reasonable and interpretable; prioritize quality over quantity.
+Example Template:
+from sklearn.base import BaseEstimator, TransformerMixin
+import pandas as pd
+import numpy as np
 
-Think carefully about the dataset description and statistics provided earlier in the conversation to decide:
-- Which columns are dates, text, numeric, or categorical.
-- Which variables may benefit from domain-agnostic feature transformations.
-Then, implement `feature_engineering(df)` accordingly.
-
-Remember: the final answer must be only valid Python code defining `feature_engineering(df)` and returning `(X, y)`, with no markdown or additional prose.
+class FeatureEngTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self):
+        pass
+        
+    def fit(self, X, y=None):
+        return self
+    
+    def transform(self, X):
+        X = X.copy()
+        # engineering ...
+        return X
 """
 
 def get_preprocessor_prompt(preprocessor_config):
