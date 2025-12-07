@@ -648,6 +648,8 @@ ENSAMBLE_CONFIG = {{
     'voting': { json.dumps(voting_config, indent=10) }
 }}
 
+!Important, you know dataset and single models performance, so choose best models for stacking meta_model from ['linear','lightgbm','xgboost','catboost']
+
 Params Stacking:
 'cv_enabled': bool,                                                             # Enable stacking on models from Optuna Cross-Validation best trial if choosen eg. lightbm stacking is builded on all lightbm models from best cv trial during optuna optimalization 
 'cv_folds': int,                                                                # Folds for stacking CV (if not using prefit)

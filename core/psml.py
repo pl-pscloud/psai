@@ -25,7 +25,7 @@ if not logger.hasHandlers():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 from sklearn.ensemble import StackingRegressor, StackingClassifier, VotingRegressor, VotingClassifier, RandomForestRegressor, RandomForestClassifier
-from sklearn.linear_model import Ridge, RidgeClassifier
+from sklearn.linear_model import Ridge, RidgeClassifier, LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.model_selection import KFold, train_test_split, StratifiedKFold
 from sklearn.metrics import (
@@ -595,15 +595,15 @@ class psML:
         
         if model_name == 'catboost':
             cls = CatBoostClassifier if task_type == 'classification' else CatBoostRegressor
-            return cls(random_state=random_state, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'])
+            return cls(random_state=random_state, verbose=0, thread_count=self.config['models']['catboost']['params']['thread_count'], task_type='GPU' if self.config['models']['catboost']['params']['device'] == 'gpu' else 'CPU')
         elif model_name == 'lightgbm':
             cls = LGBMClassifier if task_type == 'classification' else LGBMRegressor
-            return cls(random_state=random_state, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'])
+            return cls(random_state=random_state, verbose=0, num_threads=self.config['models']['lightgbm']['params']['num_threads'], device='gpu' if self.config['models']['lightgbm']['params']['device'] == 'gpu' else 'cpu')
         elif model_name == 'xgboost':
             cls = XGBClassifier if task_type == 'classification' else XGBRegressor
-            return cls(random_state=random_state, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'])
+            return cls(random_state=random_state, verbose=0, nthread=self.config['models']['xgboost']['params']['nthread'], device='cuda' if self.config['models']['xgboost']['params']['device'] == 'gpu' else 'cpu')
         elif model_name == 'linear':
-            return RidgeClassifier() if task_type == 'classification' else Ridge()
+            return LogisticRegression() if task_type == 'classification' else Ridge()
         return None
 
     def build_ensemble_cv(self) -> None:
@@ -697,7 +697,7 @@ class psML:
             estimators=base_estimators,
             final_estimator=final_estimator,
             cv=self.config['stacking']['cv_folds'] if not self.config['stacking']['prefit'] else 'prefit',
-            n_jobs=-1,
+            n_jobs=1,
             passthrough=self.config['stacking']['use_features']
         )
         
@@ -769,7 +769,7 @@ class psML:
         cls = VotingClassifier if self.config['dataset']['task_type'] == 'classification' else VotingRegressor
         kwargs = {'voting': 'soft'} if self.config['dataset']['task_type'] == 'classification' else {}
         
-        vt = cls(estimators=base_estimators, n_jobs=-1, **kwargs)
+        vt = cls(estimators=base_estimators, n_jobs=1, **kwargs)
         
         print(f"Training Voting ({suffix})...")
         if not self.config['voting']['prefit']:
