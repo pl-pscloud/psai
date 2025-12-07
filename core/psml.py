@@ -537,6 +537,11 @@ class psML:
         self.models[model_name]['cv_model'] = self.best_cv_models[model_name]
         self.models[model_name]['study'] = study
 
+        # Update config with best params so adapter can pick them up for final training
+        if 'best_params' not in self.config['models'][model_name]:
+            self.config['models'][model_name]['best_params'] = {}
+        self.config['models'][model_name]['best_params'].update(study.best_trial.params)
+
         # Final Training on Full Data
         logger.info(f'===============  {model_name} Final Training  ============================')
         
