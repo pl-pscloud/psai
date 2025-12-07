@@ -16,6 +16,9 @@ import logging
 import io
 import base64
 import lightgbm as lgb
+import inspect
+import textwrap
+import shutil
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 import time
@@ -798,6 +801,7 @@ class psML:
         cls = VotingClassifier if self.config['dataset']['task_type'] == 'classification' else VotingRegressor
         kwargs = {'voting': 'soft'} if self.config['dataset']['task_type'] == 'classification' else {}
         
+
         vt = cls(estimators=base_estimators, n_jobs=1, **kwargs)
         
         print(f"Training Voting ({suffix})...")
@@ -1077,3 +1081,181 @@ class psML:
                 logger.warning(f"Failed to save SHAP plot as base64: {e}")
             
         self.models[f'final_model_{model_name}']['shap_values'] = shap_values
+
+    def deploy_model(self, model_name: str, output_dir: str = "deploy") -> None:
+        """
+        Generates deployment artifacts for a specific model.
+        
+        Args:
+            model_name: The name of the model to deploy (e.g., 'lightgbm', 'ensemble_voting_final').
+            output_dir: Directory to save the deployment artifacts.
+        """
+        # 1. Retrieve the model
+        if model_name.startswith("final_model_"):
+            model_key = model_name
+        elif model_name.startswith("ensemble_"):
+             model_key = model_name
+        else:
+            model_key = f"final_model_{model_name}"
+            
+        if model_key not in self.models:
+            logger.error(f"Model {model_key} not found in trained models.")
+            raise ValueError(f"Model {model_key} not found. Available models: {list(self.models.keys())}")
+            
+        model_obj = self.models[model_key]
+        # Handle different structures (ensembles might be dicts or objects depending on implementation)
+        if isinstance(model_obj, dict) and 'model' in model_obj:
+            model = model_obj['model']
+        else:
+            # Assuming it might be the model object itself if stored differently
+            model = model_obj
+            
+        # 2. Prepare Output Directory
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+        os.makedirs(output_dir)
+        
+        # 2b. Copy psai package
+        try:
+            import psai
+            if hasattr(psai, '__file__') and psai.__file__ is not None:
+                psai_dir = os.path.dirname(psai.__file__)
+            elif hasattr(psai, '__path__'):
+                psai_dir = list(psai.__path__)[0]
+            else:
+                raise ImportError("Cannot locate psai package path")
+                
+            shutil.copytree(psai_dir, os.path.join(output_dir, "psai"), dirs_exist_ok=True)
+        except Exception as e:
+            logger.warning(f"Failed to copy psai package: {e}")
+
+        # 3. Handle FeatureEngTransformer and other custom classes
+        custom_classes_code = ""
+        if self.feature_engineering_transformer:
+            try:
+                # Attempt to get source code of the class
+                cls = self.feature_engineering_transformer.__class__
+                if cls.__module__ == '__main__':
+                     custom_classes_code += inspect.getsource(cls) + "\n"
+            except Exception as e:
+                logger.warning(f"Could not extract source code for feature transformer: {e}. Ensure it is pickle-able.")
+
+        # 4. Save Model Pickle
+        # We save JUST the model pipeline/object, not the whole psML instance
+        model_filename = "model.pkl"
+        with open(os.path.join(output_dir, model_filename), 'wb') as f:
+            pickle.dump(model, f)
+            
+        # 5. Generate serve.py
+        serve_code = f"""
+import cloudpickle as pickle
+import pandas as pd
+import numpy as np
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+import uvicorn
+import os
+
+# Custom Classes (Extracted)
+{custom_classes_code}
+
+app = FastAPI(title="{model_name} Service")
+
+# Load Model
+model = None
+try:
+    with open("{model_filename}", "rb") as f:
+        model = pickle.load(f)
+    print("Model loaded successfully.")
+except Exception as e:
+    print(f"Error loading model: {{e}}")
+    raise RuntimeError(f"Failed to load model: {{e}}")
+
+class PredictionRequest(BaseModel):
+    # Support both "data" (records) and "dataframe_split" (mlflow style)
+    data: Optional[List[Dict[str, Any]]] = None
+    dataframe_split: Optional[Dict[str, Any]] = None
+
+def get_dataframe(request: PredictionRequest) -> pd.DataFrame:
+    if request.dataframe_split:
+        return pd.DataFrame(data=request.dataframe_split['data'], columns=request.dataframe_split['columns'])
+    elif request.data:
+        return pd.DataFrame(request.data)
+    else:
+        raise HTTPException(status_code=400, detail="Input must contain 'data' or 'dataframe_split'")
+
+@app.post("/predict")
+def predict(request: PredictionRequest):
+    try:
+        df = get_dataframe(request)
+        prediction = model.predict(df)
+        return {{"prediction": prediction.tolist()}}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/predict_proba")
+def predict_proba(request: PredictionRequest):
+    try:
+        if not hasattr(model, "predict_proba"):
+             raise HTTPException(status_code=400, detail="Model does not support predict_proba")
+        
+        df = get_dataframe(request)
+        prediction = model.predict_proba(df)
+        return {{"prediction_proba": prediction.tolist()}}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+"""
+        with open(os.path.join(output_dir, "serve.py"), "w") as f:
+            f.write(serve_code)
+
+        # 6. Generate Dockerfile
+        dockerfile_code = """
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies if needed (e.g. for LightGBM/XGBoost)
+RUN apt-get update && apt-get install -y \\
+    libgomp1 \\
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+CMD ["python", "serve.py"]
+"""
+        with open(os.path.join(output_dir, "Dockerfile"), "w") as f:
+            f.write(dockerfile_code.strip())
+
+        # 7. Generate requirements.txt
+        import sklearn
+        # specific to psML dependencies
+        requirements = f"""
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn=={sklearn.__version__}
+lightgbm
+xgboost
+catboost
+torch
+cloudpickle
+"""
+        with open(os.path.join(output_dir, "requirements.txt"), "w") as f:
+            f.write(requirements.strip())
+            
+        logger.info(f"Deployment artifacts generated in {output_dir}")
+
