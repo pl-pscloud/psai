@@ -1,0 +1,107 @@
+.explainability {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.notice-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px;
+    color: var(--text-secondary);
+}
+
+.notice-card svg {
+    color: var(--accent-orange);
+    flex-shrink: 0;
+}
+
+.explain-controls {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.explain-controls .form-group {
+    flex: 1;
+    max-width: 300px;
+    margin-bottom: 0;
+}
+
+.error-message {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    border-radius: var(--radius-md);
+    color: var(--accent-red);
+    margin-bottom: 24px;
+}
+
+.shap-card {
+    padding: 24px;
+}
+
+.shap-image-container {
+    background: white;
+    border-radius: var(--radius-md);
+    padding: 20px;
+    margin: 16px 0;
+    text-align: center;
+}
+
+.shap-image {
+    max-width: 100%;
+    height: auto;
+}
+
+.shap-legend {
+    padding: 20px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    margin-top: 16px;
+}
+
+.shap-legend h4 {
+    font-size: 0.95rem;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+}
+
+.shap-legend ul {
+    list-style: none;
+    padding: 0;
+}
+
+.shap-legend li {
+    padding: 6px 0;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.shap-legend strong {
+    color: var(--text-primary);
+}
+
+.placeholder-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px;
+    background: var(--bg-card);
+    border: 1px dashed var(--border-color);
+    border-radius: var(--radius-lg);
+    text-align: center;
+}
+
+.placeholder-card svg {
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+.placeholder-card p {
+    color: var(--text-secondary);
+}

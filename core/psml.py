@@ -186,6 +186,19 @@ class psML:
             if hasattr(adapter, 'set_n_classes') and self.is_multiclass:
                  adapter.set_n_classes(self.y_train.iloc[:, 0].nunique())
 
+        # Initialize granular training status
+        self.training_status = {
+            "state": "idle", # 'idle', 'training', 'completed', 'failed'
+            "current_stage": None, # 'optimization', 'final_training', 'ensemble_cv', 'ensemble_final'
+            "current_model": None,
+            "current_trial": 0,
+            "total_trials": 0,
+            "model_progress": {},
+            "message": "Initialized",
+            "start_time": None,
+            "end_time": None
+        }
+
     def save(self, filepath: str) -> None:
         """Save the pSML object to a file using pickle"""
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -211,14 +224,52 @@ class psML:
         Iterates through the supported models (LightGBM, XGBoost, CatBoost, Random Forest, PyTorch)
         and calls optimize_model for each if it is enabled in the config.
         """
+        self.training_status["state"] = "training"
+        self.training_status["message"] = "Starting optimization"
+        self.training_status["start_time"] = time.time()
+        self.training_status["end_time"] = None
+        
         self.create_preprocessor()
         
+        # Initialize ensemble progress entries
+        ensemble_types = [
+            ('stacking', 'cv', 'stacking_cv'),
+            ('stacking', 'final', 'stacking_final'),
+            ('voting', 'cv', 'voting_cv'),
+            ('voting', 'final', 'voting_final')
+        ]
+        
+        for section, suffix, name in ensemble_types:
+            if self.config.get(section, {}).get(f'{suffix}_enabled', False):
+                 self.training_status["model_progress"][name] = {
+                     "status": "pending",
+                     "trials_completed": 0,
+                     "total_trials": 1, 
+                     "best_score": None,
+                     "trial_history": []
+                 }
+
         # List of supported models
         supported_models = ['lightgbm', 'xgboost', 'catboost', 'random_forest', 'pytorch']
         
+        # Initialize model progress entries
+        for model_name in supported_models:
+             if self.config['models'].get(model_name, {}).get('enabled', False):
+                 self.training_status["model_progress"][model_name] = {
+                     "status": "pending",
+                     "trials_completed": 0,
+                     "total_trials": self.config['models'][model_name]['optuna_trials'],
+                     "best_score": None,
+                     "trial_history": []
+                 }
+
         for model_name in supported_models:
             if self.config['models'].get(model_name, {}).get('enabled', False):
                 self.optimize_model(model_name)
+        
+        self.training_status["state"] = "idle"
+        self.training_status["message"] = "Optimization completed"
+        self.training_status["end_time"] = time.time()
 
     def create_preprocessor(self) -> None:
         """
@@ -397,6 +448,14 @@ class psML:
              if hasattr(adapter, 'set_embedding_info'):
                  adapter.set_embedding_info(self.columns.get('embedding_info'))
         
+        # Update Status
+        self.training_status["current_stage"] = "optimization"
+        self.training_status["current_model"] = model_name
+        self.training_status["total_trials"] = self.config['models'][model_name]['optuna_trials']
+        self.training_status["current_trial"] = 0
+        if model_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][model_name]["status"] = "optimizing"
+        
         def objective(trial):
             params = adapter.get_params(trial)
             
@@ -509,8 +568,33 @@ class psML:
             sampler=self.sampler
         )
         
-        # Custom MLflow Callback for Optuna
+        # Build callbacks list
         callbacks = []
+        
+        # Internal Status Callback
+        def status_callback(study, frozen_trial):
+            self.training_status["current_trial"] = frozen_trial.number + 1
+            if model_name in self.training_status["model_progress"]:
+                self.training_status["model_progress"][model_name]["trials_completed"] = frozen_trial.number + 1
+                if frozen_trial.value is not None:
+                     current_best = self.training_status["model_progress"][model_name].get("best_score")
+                     if current_best is None:
+                         self.training_status["model_progress"][model_name]["best_score"] = frozen_trial.value
+                     else:
+                         if direction == 'maximize':
+                             self.training_status["model_progress"][model_name]["best_score"] = max(current_best, frozen_trial.value)
+                         else:
+                             self.training_status["model_progress"][model_name]["best_score"] = min(current_best, frozen_trial.value)
+                     
+                     # Append to trial history
+                     self.training_status["model_progress"][model_name]["trial_history"].append({
+                         "trial": frozen_trial.number + 1,
+                         "score": frozen_trial.value
+                     })
+
+        callbacks.append(status_callback)
+
+        # Custom MLflow Callback for Optuna
         if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
             def logging_callback_mlflow(study, frozen_trial):
                 with mlflow.start_run(run_name=f"{model_name}_{frozen_trial.number}", experiment_id=self.mlflow_experiment_id, tags={"model_name": model_name}):
@@ -548,6 +632,11 @@ class psML:
         # Final Training on Full Data
         logger.info(f'===============  {model_name} Final Training  ============================')
         
+        self.training_status["current_stage"] = "final_training"
+        self.training_status["message"] = f"Final training for {model_name}"
+        if model_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][model_name]["status"] = "training_final"
+
         final_params = adapter.get_params(trial=None)
         
         final_preprocessor = clone(self.preprocessor)
@@ -578,6 +667,9 @@ class psML:
             'score': final_score
         }
         logger.info(f'===============  {model_name} test score: {final_score} =============')
+
+        if model_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][model_name]["status"] = "completed"
 
         # Log final model to MLflow
         if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
@@ -635,6 +727,9 @@ class psML:
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['cv_enabled'] or self.config['voting']['cv_enabled']):
             logger.info(f'===============  STARTING BUILD ENSEMBLE FROM CV MODELS  ====================')
         
+        self.training_status["current_stage"] = "ensemble_cv"
+        self.training_status["message"] = "Building CV Ensembles"
+        
         if self.config['stacking']['cv_enabled']:
             if self.config['dataset']['verbose'] > 0:
                 logger.info(f'Build Stacking from CV models')
@@ -657,6 +752,9 @@ class psML:
         if self.config['dataset']['verbose'] > 0 and (self.config['stacking']['final_enabled'] or self.config['voting']['final_enabled']):
             logger.info(f'\n===============  STARTING BUILD ENSEMBLE FROM FINAL MODELS  ====================\n')
         
+        self.training_status["current_stage"] = "ensemble_final"
+        self.training_status["message"] = "Building Final Ensembles"
+
         if self.config['stacking']['final_enabled']:
             if self.config['dataset']['verbose'] > 0:
                 logger.info(f'Build Stacking from final models')
@@ -672,6 +770,15 @@ class psML:
         meta_model_name = self.config['stacking']['meta_model']
         final_estimator = self._get_estimator(meta_model_name)
         
+        ensemble_name = f"stacking_{suffix}"
+        self.training_status["current_model"] = ensemble_name
+        self.training_status["message"] = f"Training {ensemble_name}"
+
+        # Update status
+        if ensemble_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][ensemble_name]["status"] = "training_final"
+            self.training_status["model_progress"][ensemble_name]["trials_completed"] = 0
+
         base_estimators = []
         # Determine which models to use based on config
         if use_cv_models:
@@ -738,6 +845,16 @@ class psML:
         self.models[f'ensemble_stacking_{suffix}'] = {'model': st, 'test_score': score}
         logger.info(f'Stacking {suffix} score: {score}')
 
+        # Update status to completed
+        if ensemble_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][ensemble_name]["status"] = "completed"
+            self.training_status["model_progress"][ensemble_name]["trials_completed"] = 1
+            self.training_status["model_progress"][ensemble_name]["best_score"] = score
+            self.training_status["model_progress"][ensemble_name]["trial_history"].append({
+                "trial": 1,
+                "score": score
+            })
+
         # Log stacking model to MLflow
         if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
             with mlflow.start_run(run_name=f"stacking_{suffix}", experiment_id=self.mlflow_experiment_id, tags={"model_name": f"stacking_{suffix}"}):
@@ -765,6 +882,15 @@ class psML:
         suffix = "cv" if use_cv_models else "final"
         base_estimators = []
         
+        ensemble_name = f"voting_{suffix}"
+        self.training_status["current_model"] = ensemble_name
+        self.training_status["message"] = f"Building {ensemble_name}"
+        
+        # Update status
+        if ensemble_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][ensemble_name]["status"] = "training_final"
+            self.training_status["model_progress"][ensemble_name]["trials_completed"] = 0
+
         # Determine which models to use based on config
         if use_cv_models:
             models_to_use = self.config['voting'].get('cv_models', [])
@@ -841,6 +967,16 @@ class psML:
         self.models[f'ensemble_voting_{suffix}'] = {'model': vt, 'test_score': score}
         logger.info(f'Voting {suffix} score: {score}')
 
+        # Update status to completed
+        if ensemble_name in self.training_status["model_progress"]:
+            self.training_status["model_progress"][ensemble_name]["status"] = "completed"
+            self.training_status["model_progress"][ensemble_name]["trials_completed"] = 1
+            self.training_status["model_progress"][ensemble_name]["best_score"] = score
+            self.training_status["model_progress"][ensemble_name]["trial_history"].append({
+                "trial": 1,
+                "score": score
+            })
+
         # Log voting model to MLflow
         if self.mlflow_experiment_name or self.config.get('mlflow', {}).get('enabled', True):
             with mlflow.start_run(run_name=f"voting_{suffix}", experiment_id=self.mlflow_experiment_id, tags={"model_name": f"voting_{suffix}"}):
@@ -903,29 +1039,43 @@ class psML:
         if hasattr(preprocessor, 'get_feature_names_out'):
             try:
                 feature_names = preprocessor.get_feature_names_out()
-                # Clean feature names (remove transformers prefixes like 'num__', 'cat__')
-                cleaned_names = []
-                for name in feature_names:
-                    # Split by double underscore and take the last part, or join if multiple
-                    # But ColumnTransformer usually does 'name__feature'
-                    # We want to remove the 'num__', 'low__', 'high__', 'skew__', 'outlier__' prefixes
-                    for prefix in ['num__', 'low__', 'high__', 'skew__', 'outlier__', 'dim_reduction__', 'cat__', 'onehot__', 'remainder__']:
+            except Exception as e:
+                logger.warning(f"Could not get feature names from main preprocessor: {e}")
+                # Fallback: Try to get from inner 'preprocessor' step if exists (skipping FE step)
+                if isinstance(preprocessor, Pipeline) and 'preprocessor' in preprocessor.named_steps:
+                    try:
+                        logger.info("Attempting to get feature names from inner preprocessor step...")
+                        feature_names = preprocessor.named_steps['preprocessor'].get_feature_names_out()
+                    except Exception as inner_e:
+                         logger.warning(f"Could not get feature names from inner preprocessor: {inner_e}")
+        
+        if feature_names is not None:
+            # Clean feature names (remove transformers prefixes like 'num__', 'cat__')
+            cleaned_names = []
+            prefixes_to_remove = ['num__', 'low__', 'high__', 'skew__', 'outlier__', 'dim_reduction__', 'cat__', 'onehot__', 'remainder__', 'pipeline__']
+            
+            for name in feature_names:
+                # Iteratively remove prefixes to handle nested pipelines (e.g. dim_reduction__num__age)
+                original_name = name
+                while True:
+                    found_prefix = False
+                    for prefix in prefixes_to_remove:
                         if name.startswith(prefix):
                             name = name[len(prefix):]
-                    cleaned_names.append(name)
-                
-                # Sanitize feature names for XGBoost (no [, ], <)
-                sanitized_names = []
-                for name in cleaned_names:
-                    # Replace forbidden characters
-                    name = name.replace('[', '(').replace(']', ')').replace('<', '_')
-                    sanitized_names.append(name)
-                feature_names = sanitized_names
-            except Exception as e:
-                logger.warning(f"Could not get feature names: {e}")
-                import traceback
-                logger.warning(traceback.format_exc())
-        
+                            found_prefix = True
+                            break # Restart loop with new name to check for other prefixes
+                    if not found_prefix:
+                        break
+                cleaned_names.append(name)
+            
+            # Sanitize feature names for XGBoost (no [, ], <)
+            sanitized_names = []
+            for name in cleaned_names:
+                # Replace forbidden characters
+                name = name.replace('[', '(').replace(']', ')').replace('<', '_')
+                sanitized_names.append(name)
+            feature_names = sanitized_names
+            
         if feature_names is None:
             feature_names = [f'feature_{i}' for i in range(X_transformed.shape[1])]
             
@@ -981,7 +1131,7 @@ class psML:
                 explainer = shap.DeepExplainer(wrapped_model, background_tensor)
                 
                 X_tensor = torch.tensor(X_transformed.values, dtype=torch.float32).to(estimator.device)
-                shap_values = explainer.shap_values(X_tensor)
+                shap_values = explainer.shap_values(X_tensor, check_additivity=False)
                 used_explainer = 'deep'
                 
             except Exception as e:
@@ -991,16 +1141,30 @@ class psML:
         if shap_values is None:
             # Generic explainer (might be slow)
             logger.warning(f"Using KernelExplainer for {model_name}. This might be slow.")
-            # Use a small background sample
-            background = preprocessor.transform(self.X_train.sample(min(100, len(self.X_train)), random_state=42))
-            if hasattr(background, "toarray"):
-                background = background.toarray()
-            background = pd.DataFrame(background, columns=feature_names)
+            # Use a small background sample or kmeans for speed
+            background_data = preprocessor.transform(self.X_train.sample(min(100, len(self.X_train)), random_state=42))
+            if hasattr(background_data, "toarray"):
+                background_data = background_data.toarray()
+            
+            # Use kmeans for dense data to speed up KernelExplainer
+            try:
+                if not hasattr(background_data, "tocsr"): # Check if not sparse
+                     background_summary = shap.kmeans(background_data, 20)
+                else:
+                     background_summary = background_data
+            except Exception:
+                 background_summary = background_data
+
+            background_df = pd.DataFrame(background_data if not isinstance(background_summary, shap.utils._legacy.DenseData) else background_summary.data, columns=feature_names) # Create dummy df for signature matches if needed, although Kernel explainer wraps function.
+            
+            # Actually KernelExplainer needs the summary as input for "data"
+            # And we need to pass the function.
+            # Warning: shap.kmeans returns a DenseData object or similar.
             
             if self.config['dataset']['task_type'] == 'classification':
-                 explainer = shap.KernelExplainer(estimator.predict_proba, background)
+                 explainer = shap.KernelExplainer(estimator.predict_proba, background_summary)
             else:
-                 explainer = shap.KernelExplainer(estimator.predict, background)
+                 explainer = shap.KernelExplainer(estimator.predict, background_summary)
             
             shap_values = explainer(X_transformed)
             used_explainer = 'kernel'

@@ -1,0 +1,162 @@
+.training {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.training .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.training-actions {
+    display: flex;
+    gap: 12px;
+}
+
+.training-status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 32px;
+}
+
+.status-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+}
+
+.status-card.success {
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.status-card.success .status-icon {
+    color: var(--accent-green);
+}
+
+.status-card.active {
+    border-color: rgba(249, 115, 22, 0.3);
+}
+
+.status-card.active .status-icon {
+    color: var(--accent-orange);
+}
+
+.status-icon {
+    color: var(--text-muted);
+}
+
+.status-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.status-label {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.status-value {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.training-content {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+.models-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 16px 0;
+}
+
+.model-progress-item {
+    padding: 0 8px;
+}
+
+.model-progress-header {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.model-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.model-trials {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.progress-bar {
+    height: 8px;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    border-radius: var(--radius-full);
+    transition: width 0.3s ease;
+}
+
+.model-progress-footer {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+}
+
+.progress-percent {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.progress-status {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.logs-container {
+    max-height: 300px;
+    overflow-y: auto;
+    background: var(--bg-secondary);
+    border-radius: var(--radius-md);
+    padding: 16px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 0.85rem;
+}
+
+.log-line {
+    padding: 4px 0;
+    color: var(--text-secondary);
+}
+
+.log-line.info {
+    color: var(--accent-cyan);
+}
+
+.log-line.error {
+    color: var(--accent-red);
+}
+
+@media (max-width: 1024px) {
+
+    .training-status-grid,
+    .training-content {
+        grid-template-columns: 1fr;
+    }
+}

@@ -19,7 +19,7 @@ models_enabled = {                                  # Master toggle to enable/di
 
 # Dataset configuration
 DATASET_CONFIG = {
-    'train_path': 'train.csv',  # Path to the training CSV file
+    'train_path': 'datasets/train.csv',  # Path to the training CSV file
     'target': 'target',         # Name of the target column to predict
     'id_column': 'id',          # Name of the ID column (will be set as index)
     'test_size': 0.2,           # Proportion of data to use for the hold-out test set

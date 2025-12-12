@@ -93,6 +93,7 @@ class DataScientist:
         self.X = None
         self.y = None
         self.eda_report = None
+        self.ai_hello = None
         self.ai_eda_summary = None
         self.ai_dataset_config = None
         self.ai_preprocessor_config = None
@@ -123,8 +124,11 @@ class DataScientist:
         # 4. Get Code from LLM
         print("Saying hello to AI DataScientist...\n")
         response = self.agent.invoke({"messages": [HumanMessage(content="Hello!")]}, config=self.config)
-        self._final_message_text(response)
-        print(self._final_message_text(response))
+        self.ai_hello = self._final_message_text(response)
+        print(self.ai_hello)
+        
+    def say_hello(self) -> str:
+        return self.ai_hello
 
     def _final_message_text(self, result: Dict[str, Any]) -> str:
         try:
@@ -176,9 +180,9 @@ class DataScientist:
         self.psml.build_ensemble_final()
 
         
-    def consult_eda(self) -> str:
+    def consult_eda(self) -> Dict[str, Any]:
         """
-        Generates a text summary of the EDA report to feed into the LLM.
+        Generates a summary of the EDA report to feed into the LLM.
         """
         print("Generating EDA summary...")
         report = EDAReport(self.df, self.target)
@@ -224,8 +228,12 @@ class DataScientist:
         print("-" * 40)
             
         print("EDA summary generated.")
+        return {
+            "message": "EDA Analysis Completed",
+            "llm_output": self.ai_eda_summary
+        }
 
-    def consult_dataset_config(self, execute_code: bool = True, output_config: bool = False) -> str:
+    def consult_dataset_config(self, execute_code: bool = True, output_config: bool = False) -> Dict[str, Any]:
         """
         Generates a text summary of the EDA report to feed into the LLM.
         """
@@ -243,37 +251,40 @@ class DataScientist:
         
         print("-" * 40)
         print("Generating dataset config...")
+        
+        result = {
+             "message": "Dataset Config Generated",
+             "llm_output": dataset_config,
+             "config": None
+        }
+
         try:
             if execute_code:
                 print("Executing generated config to create dataset config...")
                 self.ai_dataset_config = json.loads(dataset_config)
                 print("Dataset config executed.")
+                result['config'] = self.ai_dataset_config
+                
                 if output_config:
                     print("-" * 40)
                     print(dataset_config)
                     print("-" * 40)
-                return self.ai_dataset_config
+                return result
             else:
                 print("-" * 40)
                 print(dataset_config)
                 print("-" * 40)
                 print("Code not executed.")
-                return None
+                return result
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
-            return None
+            result['error'] = str(e)
+            return result
 
-    def consult_feature_engineering(self, execute_code: bool = True, return_X_y: bool = False, output_config: bool = False):
+    def consult_feature_engineering(self, execute_code: bool = True, return_X_y: bool = False, output_config: bool = False) -> Dict[str, Any]:
         """
         Analyzes the dataset and performs feature engineering using LLM-generated code.
-        
-        Args:
-            dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
-            target (str): The name of the target column.
-            
-        Returns:
-            Tuple[pd.DataFrame, Union[pd.Series, pd.DataFrame]]: X (features) and y (target).
         """
         # 1. Load Data
         if self.target not in self.df.columns:
@@ -282,7 +293,7 @@ class DataScientist:
 
         # 2. Generate EDA Summary if needed
         if self.ai_eda_summary is None:
-            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
+            self.consult_eda() # changed self.consulteda_summary to self.consult_eda() which sets self.ai_eda_summary although returns dict now. Wait, consult_eda returns dict, but sets self.ai_eda_summary internally. OK.
 
         
         # 3. Prompt Engineering
@@ -295,8 +306,13 @@ class DataScientist:
         
         print("-" * 40)
         print("Generating Feature Engineering Code...")
-                
         
+        result = {
+            "message": "Feature Engineering Code Generated",
+            "llm_output": code_feature_engineering,
+            "code_executed": False
+        }
+
         try:
             self.ai_feature_engineering_code = code_feature_engineering
             if execute_code:
@@ -337,39 +353,33 @@ class DataScientist:
                 
                 print(f"Feature Engineering Transformer created. X shape: {self.X.shape}, y shape: {self.y.shape}")
                 
+                result['code_executed'] = True
+                
                 if return_X_y:
                     return self.X, self.y
                 else:
-                    return None
+                    return result
             else:
                 print("Code not executed.")
                 print("-" * 40)
                 print(code_feature_engineering)
                 print("-" * 40)
-                return None
+                return result
             
         except Exception as e:
             print(f"Error executing generated code: {e}")
             raise
 
-    def consult_preprocessor_config(self, execute_code: bool = True, output_config: bool = False):
+    def consult_preprocessor_config(self, execute_code: bool = True, output_config: bool = False) -> Dict[str, Any]:
         """
         Consults the LLM to generate a preprocessor configuration.
-        
-        Args:
-            dataset (Union[str, pd.DataFrame]): Path to the dataset csv or a pandas DataFrame.
-            target (str): The name of the target column.
-            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
-            
-        Returns:
-            Union[Dict[str, Any], str]: The generated preprocessor configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
         # 1. Load Data
         if self.target not in self.df.columns:
             raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
         if self.ai_eda_summary is None:
-            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
+            self.consult_eda()
         
         
 
@@ -411,47 +421,48 @@ class DataScientist:
         print("-" * 40)
         print("Generating Preprocessor Code...")
 
+        result = {
+            "message": "Preprocessor Config Generated",
+            "llm_output": code_preprocessor,
+            "config": None
+        }
+
         try:
             
             if execute_code:
                 print("Executing generated config to create preprocessor...")
                 self.ai_preprocessor_config = json.loads(code_preprocessor)
                 print("Preprocessor config executed.")
+                result['config'] = self.ai_preprocessor_config
+                
                 if output_config:
                     print("-" * 40)
                     print(code_preprocessor)
                     print("-" * 40)
-                return self.ai_preprocessor_config
+                return result
             else:
                 print("-" * 40)
                 print(code_preprocessor)
                 print("-" * 40)
                 print("Code not executed.")
-                return None
+                return result
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
-            return None
+            result['error'] = str(e)
+            return result
 
-    def consult_models_config(self, execute_code: bool = True, output_config: bool = False):
+    def consult_models_config(self, execute_code: bool = True, output_config: bool = False) -> Dict[str, Any]:
         """
         Consults the LLM to generate a models configuration.
-        
-        Args:
-            df (pd.DataFrame): A pandas DataFrame.
-            target (str): The name of the target column.
-            execute_code (bool): If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
-            
-        Returns:
-            Union[Dict[str, Any], str]: The generated models configuration as a dictionary if `execute_code` is True and parsing succeeds, otherwise the raw string response from the LLM.
         """
 
         if self.target not in self.df.columns:
             raise ValueError(f"Target column '{self.target}' not found in dataset.")
 
         if self.ai_eda_summary is None:
-            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
+            self.consult_eda()
 
         from psai.core.config import CONFIG as MODELS_CONFIG
 
@@ -491,48 +502,49 @@ class DataScientist:
         print("-" * 40)
         print("Generating Models Config...")
 
+        result = {
+            "message": "Models Config Generated",
+            "llm_output": code_models,
+            "config": None
+        }
         
         try:
             if execute_code:
                 print("Executing generated config to create models...")
                 self.ai_models_config = json.loads(code_models)
                 print("Models config executed.")
+                result["config"] = self.ai_models_config
+
                 if output_config:
                     print("-" * 40)
                     print(code_models)
                     print("-" * 40)
-                return self.ai_models_config
+                return result
             else:
                 print("-" * 40)
                 print(code_models)
                 print("-" * 40)
                 print("Code not executed.")
-                return None
+                return result
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
-            return None
+            result["error"] = str(e)
+            return result
 
 
 
-    def consult_ensamble_config(self, execute_code: bool = True, output_config: bool = False):
+    def consult_ensamble_config(self, execute_code: bool = True, output_config: bool = False) -> Dict[str, Any]:
         """
         Consults the LLM to generate an ensemble configuration (Stacking/Voting).
-        
-        Args:
-            execute_code: If True, attempts to parse the LLM's response as JSON. If False, returns the raw string.
-            
-        Returns:
-            The generated ensemble configuration as a dictionary if `execute_code` is True and parsing succeeds, 
-            otherwise the raw string response from the LLM.
         """
 
         if self.df is None:
             raise ValueError("Dataset must be loaded before consulting ensamble.")
         
         if self.ai_eda_summary is None:
-            self.ai_eda_summary = self.consulteda_summary(self.df, self.target)
+            self.consult_eda()
 
         from psai.core.config import CONFIG as MODELS_CONFIG
 
@@ -548,40 +560,42 @@ class DataScientist:
         print("-" * 40)
         print("Generating Ensamble Config...")
 
+        result = {
+            "message": "Ensemble Config Generated",
+            "llm_output": ensamble_config,
+            "config": None
+        }
         
         try:
             if execute_code:
                 print("Executing generated config to create models...")
                 self.ai_ensamble_config = json.loads(ensamble_config)
                 print("Ensamble config executed.")
+                result["config"] = self.ai_ensamble_config
+                
                 if output_config:
                     print("-" * 40)
                     print(ensamble_config)
                     print("-" * 40)
-                return self.ai_ensamble_config
+                return result
             else:
                 print("-" * 40)
                 print(ensamble_config)
                 print("-" * 40)
                 print("Code not executed")
-                return ensamble_config
+                return result
             
         except Exception as e:
             print(f"Error parsing or executing generated code: {e}")
             # If parsing fails, return the raw string so the user can see what happened
-            return ensamble_config
+            result["error"] = str(e)
+            return result
 
 
 
-    def consult_results(self):
+    def consult_results(self) -> Dict[str, Any]:
         """
         Consults the LLM to analyze the results of the trained models.
-        
-        This method gathers the scores from the psML instance and asks the LLM to provide
-        a comprehensive analysis, including model comparison, insights, and interpretation.
-        
-        Returns:
-            The LLM's analysis of the model results.
         """
         # 1. Check if PSML is None
         if self.psml is None:
@@ -627,15 +641,14 @@ class DataScientist:
         print(self.ai_results_analysis)
         print("-" * 40)
         
-    def consult_shap(self, model_name: str):
+        return {
+            "message": "Results Analysis Generated",
+            "llm_output": ai_results
+        }
+        
+    def consult_shap(self, model_name: str) -> Dict[str, Any]:
         """
         Consults the LLM to analyze the SHAP values of the trained models.
-        
-        This method gathers the SHAP plot image from the psML instance and asks the LLM to provide
-        a comprehensive analysis and interpretation.
-        
-        Returns:
-            The LLM's analysis of the SHAP plot for model.
         """
         # 1. Check if PSML is None
         if self.psml is None:
@@ -677,6 +690,7 @@ class DataScientist:
         else:
             print(f"Model {model_key} found in PSML.")
         
+        # Ensure SHAP image exists
         if 'shap_image' not in self.psml.models[model_key]:
             print(f"Running explain_model for model {model_key}.")
             self.psml.explain_model(model_name=model_name)
@@ -702,7 +716,13 @@ class DataScientist:
         print("Generated SHAP Analysis:")
         print("-" * 40)
         print(ai_shap_analysis)
-        print("-" * 40)  
+        print("-" * 40)
+
+        return {
+            "message": f"SHAP Analysis for {model_name} Generated",
+            "llm_output": ai_shap_analysis,
+            "image_base64": shap_image_base64
+        }  
 
 
     def end_to_end_ml_process(self, execute_code: bool = True, save_report: bool = True, report_filename: str = "report.html", output_config: bool = False):
